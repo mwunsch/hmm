@@ -1,0 +1,313 @@
+#!/bin/sh
+
+set -u
+
+die() {
+  printf 'hmm: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+usage: hmm [options] [prompt]
+
+Options:
+  --new, --reset          Start a fresh terminal session
+  --show                  Show the current terminal session id
+  --model, -m <model>     Use a Codex model for this turn
+  --profile, -p <name>    Use a Codex config profile
+  --config, -c <k=v>      Pass a Codex config override
+  --write                 Allow workspace writes for this turn
+  --danger                Bypass Codex approvals and sandboxing
+  --quiet                 Print only assistant messages
+  --verbose               Show extra event details
+  --json                  Print raw Codex JSONL events
+  --color <mode>          auto, always, or never
+  --no-color              Disable color
+  --no-spinner            Disable the loading spinner
+  --instructions <text>   Override the default hmm instruction prefix
+  --no-instructions       Send the prompt without hmm's instruction prefix
+  --help, -h              Show this help
+EOF
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required dependency: $1"
+}
+
+script=$0
+case $script in
+  */*) ;;
+  *) script=$(command -v -- "$script" 2>/dev/null || printf '%s' "$script") ;;
+esac
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" 2>/dev/null && pwd -P) || die "cannot resolve script directory"
+root_dir=$(CDPATH= cd -- "$script_dir/.." 2>/dev/null && pwd -P) || die "cannot resolve install root"
+libexec_dir=${HMM_LIBEXEC:-"$root_dir/libexec"}
+
+session_tool=$libexec_dir/hmm-session
+codex_tool=$libexec_dir/hmm-codex
+render_tool=$libexec_dir/hmm-render
+
+[ -x "$session_tool" ] || die "missing libexec helper: $session_tool"
+[ -x "$codex_tool" ] || die "missing libexec helper: $codex_tool"
+[ -x "$render_tool" ] || die "missing libexec helper: $render_tool"
+
+if [ -z "${HMM_SHELL_PID:-}" ]; then
+  HMM_SHELL_PID=${PPID:-unknown}
+fi
+
+if [ -z "${HMM_TTY:-}" ]; then
+  HMM_TTY=$(tty 2>/dev/null || printf 'notty')
+fi
+
+export HMM_SHELL_PID HMM_TTY
+
+codex_args=
+
+add_codex_arg() {
+  codex_args=$codex_args$1'
+'
+}
+
+reset=0
+show=0
+safety=read-only
+quiet=0
+verbose=0
+raw_json=0
+color=auto
+spinner=auto
+model_for_usage=
+instructions=${HMM_INSTRUCTIONS:-You are hmm, a terse terminal assistant. Answer briefly and directly. Prefer the smallest useful answer. Do not inspect files or run tools unless needed to answer or act. When tools are needed, keep progress updates short.}
+use_instructions=1
+
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --)
+      shift
+      break
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --new|--reset)
+      reset=1
+      shift
+      ;;
+    --show)
+      show=1
+      shift
+      ;;
+    --model|-m)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      add_codex_arg "--model"
+      add_codex_arg "$2"
+      model_for_usage=$2
+      shift 2
+      ;;
+    --model=*)
+      value=${1#--model=}
+      add_codex_arg "--model"
+      add_codex_arg "$value"
+      model_for_usage=$value
+      shift
+      ;;
+    --profile|-p)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      add_codex_arg "--profile"
+      add_codex_arg "$2"
+      shift 2
+      ;;
+    --profile=*)
+      add_codex_arg "--profile"
+      add_codex_arg "${1#--profile=}"
+      shift
+      ;;
+    --config|-c)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      add_codex_arg "--config"
+      add_codex_arg "$2"
+      shift 2
+      ;;
+    --config=*)
+      add_codex_arg "--config"
+      add_codex_arg "${1#--config=}"
+      shift
+      ;;
+    --enable|--disable|--image|-i|--cd|-C|--add-dir|--local-provider|--output-schema)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      add_codex_arg "$1"
+      add_codex_arg "$2"
+      shift 2
+      ;;
+    --enable=*|--disable=*|--image=*|--cd=*|--add-dir=*|--local-provider=*|--output-schema=*)
+      name=${1%%=*}
+      value=${1#*=}
+      add_codex_arg "$name"
+      add_codex_arg "$value"
+      shift
+      ;;
+    --strict-config|--oss|--ignore-user-config|--ignore-rules|--dangerously-bypass-hook-trust)
+      add_codex_arg "$1"
+      shift
+      ;;
+    --write)
+      safety=workspace-write
+      shift
+      ;;
+    --danger)
+      safety=danger
+      shift
+      ;;
+    --quiet)
+      quiet=1
+      shift
+      ;;
+    --verbose)
+      verbose=1
+      shift
+      ;;
+    --json)
+      raw_json=1
+      spinner=never
+      color=never
+      shift
+      ;;
+    --color)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      color=$2
+      shift 2
+      ;;
+    --color=*)
+      color=${1#--color=}
+      shift
+      ;;
+    --no-color)
+      color=never
+      shift
+      ;;
+    --no-spinner)
+      spinner=never
+      shift
+      ;;
+    --instructions)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      instructions=$2
+      use_instructions=1
+      shift 2
+      ;;
+    --instructions=*)
+      instructions=${1#--instructions=}
+      use_instructions=1
+      shift
+      ;;
+    --no-instructions)
+      use_instructions=0
+      shift
+      ;;
+    --*)
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+case $color in
+  auto|always|never) ;;
+  *) die "--color must be auto, always, or never" ;;
+esac
+
+if [ "$reset" -eq 1 ]; then
+  $session_tool reset || exit 1
+fi
+
+if [ "$show" -eq 1 ]; then
+  $session_tool show
+  exit $?
+fi
+
+session_file=$($session_tool path) || exit 1
+
+prompt=$*
+if [ -z "$prompt" ] && [ ! -t 0 ]; then
+  prompt=$(
+    while IFS= read -r line || [ -n "$line" ]; do
+      printf '%s\n' "$line"
+    done
+  )
+fi
+
+[ -n "$prompt" ] || die "usage: hmm <prompt>"
+
+if [ "$use_instructions" -eq 1 ] && [ -n "$instructions" ]; then
+  prompt=$(printf '%s\n\nUser prompt: %s' "$instructions" "$prompt")
+fi
+
+need codex
+need jq
+
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/hmm.XXXXXX") || die "cannot create temp directory"
+cleanup() {
+  rm -rf "$run_dir"
+}
+trap cleanup EXIT HUP INT TERM
+
+codex_args_file=$run_dir/codex-args
+printf '%s' "$codex_args" >"$codex_args_file" || die "cannot create temp args file"
+
+mode=start
+session_id=
+if [ -s "$session_file" ]; then
+  session_id=$(sed -n '1p' "$session_file")
+  if [ -n "$session_id" ]; then
+    mode=resume
+  fi
+fi
+
+if [ "$safety" = danger ] && [ "$raw_json" -eq 0 ]; then
+  printf 'hmm: danger mode enabled: Codex approvals and sandboxing are disabled\n' >&2
+fi
+
+status_file=$run_dir/codex-status
+meta_dir=$run_dir/meta
+mkdir -p "$meta_dir" || die "cannot create temp metadata directory"
+printf '125\n' >"$status_file" || die "cannot create temp status file"
+
+HMM_CODEX_STATUS_FILE=$status_file \
+  "$codex_tool" \
+    --mode "$mode" \
+    --session-id "$session_id" \
+    --args-file "$codex_args_file" \
+    --safety "$safety" \
+    -- "$prompt" |
+  "$render_tool" \
+    --meta-dir "$meta_dir" \
+    --color "$color" \
+    --spinner "$spinner" \
+    --model "$model_for_usage" \
+    $( [ "$quiet" -eq 1 ] && printf '%s' '--quiet' ) \
+    $( [ "$verbose" -eq 1 ] && printf '%s' '--verbose' ) \
+    $( [ "$raw_json" -eq 1 ] && printf '%s' '--json' )
+
+render_status=$?
+codex_status=125
+if [ -s "$status_file" ]; then
+  codex_status=$(sed -n '1p' "$status_file")
+fi
+
+if [ -s "$meta_dir/thread_id" ]; then
+  new_session_id=$(sed -n '1p' "$meta_dir/thread_id")
+  if [ -n "$new_session_id" ]; then
+    $session_tool save "$new_session_id" >/dev/null || exit 1
+  fi
+fi
+
+if [ "$codex_status" -ne 0 ]; then
+  exit "$codex_status"
+fi
+
+exit "$render_status"

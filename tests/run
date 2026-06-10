@@ -1,0 +1,280 @@
+#!/bin/sh
+
+set -u
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd -P) || exit 1
+TMP=${TMPDIR:-/tmp}/hmm-tests.$$
+FAKE_BIN=$TMP/bin
+
+pass=0
+fail=0
+skip=0
+
+cleanup() {
+  rm -rf "$TMP"
+}
+trap cleanup EXIT HUP INT TERM
+
+mkdir -p "$FAKE_BIN" || exit 1
+
+cat >"$FAKE_BIN/codex" <<'EOF'
+#!/bin/sh
+
+args_file=${HMM_FAKE_CODEX_ARGS:-}
+prompt_file=${HMM_FAKE_CODEX_PROMPT:-}
+thread_id=${HMM_FAKE_THREAD_ID:-fake-thread}
+text=${HMM_FAKE_TEXT:-fake-ok}
+exit_code=${HMM_FAKE_CODEX_EXIT:-0}
+
+last=
+if [ -n "$args_file" ]; then
+  : >"$args_file"
+fi
+
+for arg do
+  if [ -n "$args_file" ]; then
+    printf '<%s>\n' "$arg" >>"$args_file"
+  fi
+  last=$arg
+done
+
+if [ -n "$prompt_file" ]; then
+  printf '%s' "$last" >"$prompt_file"
+fi
+
+printf '{"type":"thread.started","thread_id":"%s"}\n' "$thread_id"
+printf '{"type":"turn.started"}\n'
+printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"%s"}}\n' "$text"
+printf '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":0,"output_tokens":34,"reasoning_output_tokens":0}}\n'
+
+exit "$exit_code"
+EOF
+chmod +x "$FAKE_BIN/codex" || exit 1
+
+PATH=$FAKE_BIN:$PATH
+export PATH
+
+ok() {
+  pass=$((pass + 1))
+  printf 'ok %s\n' "$1"
+}
+
+not_ok() {
+  fail=$((fail + 1))
+  printf 'not ok %s\n' "$1"
+  [ "$#" -gt 1 ] && printf '  %s\n' "$2"
+}
+
+skip_test() {
+  skip=$((skip + 1))
+  printf 'skip %s\n' "$1"
+}
+
+assert_contains() {
+  haystack=$1
+  needle=$2
+  label=$3
+  case $haystack in
+    *"$needle"*) return 0 ;;
+    *) not_ok "$label" "expected output to contain: $needle"; return 1 ;;
+  esac
+}
+
+assert_file_contains() {
+  file=$1
+  needle=$2
+  label=$3
+  [ -f "$file" ] || { not_ok "$label" "missing file: $file"; return 1; }
+  content=$(sed -n '1,240p' "$file")
+  assert_contains "$content" "$needle" "$label"
+}
+
+run_test() {
+  name=$1
+  shift
+  if "$@"; then
+    ok "$name"
+  else
+    not_ok "$name"
+  fi
+}
+
+test_shell_syntax() {
+  /bin/sh -n "$ROOT/bin/hmm" \
+    "$ROOT/libexec/hmm-session" \
+    "$ROOT/libexec/hmm-codex" \
+    "$ROOT/libexec/hmm-render" || return 1
+
+  if command -v zsh >/dev/null 2>&1; then
+    zsh -n "$ROOT/shell/zsh.sh" || return 1
+  fi
+}
+
+test_help_without_tmp() {
+  output=$(TERM=dumb TMPDIR=/dev/null "$ROOT/bin/hmm" --help 2>&1) || return 1
+  assert_contains "$output" 'usage: hmm' 'help without tmp'
+}
+
+test_session_save_show_reset() {
+  state=$TMP/state-session
+  HMM_STATE_DIR=$state HMM_SHELL_PID=101 HMM_TTY=/dev/ttys101 \
+    "$ROOT/libexec/hmm-session" save session-101 >/dev/null || return 1
+
+  output=$(HMM_STATE_DIR=$state HMM_SHELL_PID=101 HMM_TTY=/dev/ttys101 \
+    "$ROOT/libexec/hmm-session" show) || return 1
+  [ "$output" = session-101 ] || return 1
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=101 HMM_TTY=/dev/ttys101 \
+    "$ROOT/libexec/hmm-session" reset || return 1
+
+  output=$(HMM_STATE_DIR=$state HMM_SHELL_PID=101 HMM_TTY=/dev/ttys101 \
+    "$ROOT/libexec/hmm-session" show) || return 1
+  [ "$output" = '(no active thread)' ]
+}
+
+test_bin_reset_before_show() {
+  state=$TMP/state-reset-show
+  HMM_STATE_DIR=$state HMM_SHELL_PID=102 HMM_TTY=/dev/ttys102 \
+    "$ROOT/libexec/hmm-session" save old-session >/dev/null || return 1
+
+  output=$(HMM_STATE_DIR=$state HMM_SHELL_PID=102 HMM_TTY=/dev/ttys102 \
+    "$ROOT/bin/hmm" --reset --show) || return 1
+  [ "$output" = '(no active thread)' ]
+}
+
+test_renderer_fixture() {
+  output=$(printf '%s\n' \
+    '{"type":"thread.started","thread_id":"abc123"}' \
+    '{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc pwd"}}' \
+    '{"type":"item.completed","item":{"type":"command_execution","exit_code":0,"aggregated_output":"/tmp\\n"}}' \
+    '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}' \
+    '{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":34}}' |
+    "$ROOT/libexec/hmm-render" --meta-dir "$TMP/meta" --color never --spinner never) || return 1
+
+  assert_contains "$output" '> shell: /bin/zsh -lc pwd' 'renderer shell start' || return 1
+  assert_contains "$output" 'ok shell completed' 'renderer shell completion' || return 1
+  assert_contains "$output" 'done' 'renderer agent text' || return 1
+  assert_contains "$output" '1.2k in / 34 out' 'renderer compact usage' || return 1
+  assert_contains "$output" '·' 'renderer elapsed separator'
+}
+
+test_renderer_unwritable_meta_is_quiet() {
+  stderr=$TMP/render-stderr
+  printf '%s\n' '{"type":"thread.started","thread_id":"abc123"}' |
+    "$ROOT/libexec/hmm-render" --meta-dir /dev/null --color never --spinner never 2>"$stderr" >/dev/null || return 1
+  [ ! -s "$stderr" ]
+}
+
+test_bin_uses_fake_codex_and_saves_session() {
+  state=$TMP/state-bin
+  args=$TMP/codex-args
+  prompt=$TMP/codex-prompt
+
+  output=$(HMM_STATE_DIR=$state HMM_SHELL_PID=103 HMM_TTY=/dev/ttys103 \
+    HMM_FAKE_CODEX_ARGS=$args HMM_FAKE_CODEX_PROMPT=$prompt HMM_FAKE_THREAD_ID=thread-103 HMM_FAKE_TEXT=hello \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color hello 2>&1) || return 1
+
+  assert_contains "$output" 'hello' 'bin fake codex output' || return 1
+  assert_file_contains "$prompt" 'User prompt: hello' 'bin default instructions' || return 1
+
+  saved=$(HMM_STATE_DIR=$state HMM_SHELL_PID=103 HMM_TTY=/dev/ttys103 \
+    "$ROOT/libexec/hmm-session" show) || return 1
+  [ "$saved" = thread-103 ]
+}
+
+test_direct_bin_continuity_without_wrapper_env() {
+  state=$TMP/state-direct-continuity
+
+  HMM_STATE_DIR=$state HMM_FAKE_THREAD_ID=direct-thread HMM_FAKE_TEXT=hello \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions hello >/dev/null || return 1
+
+  output=$(HMM_STATE_DIR=$state "$ROOT/bin/hmm" --show) || return 1
+  [ "$output" = direct-thread ]
+}
+
+test_bin_no_instructions() {
+  state=$TMP/state-noinst
+  prompt=$TMP/noinst-prompt
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=104 HMM_TTY=/dev/ttys104 \
+    HMM_FAKE_CODEX_PROMPT=$prompt \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions plain-prompt >/dev/null || return 1
+
+  content=$(sed -n '1,40p' "$prompt")
+  [ "$content" = plain-prompt ]
+}
+
+test_bin_reads_stdin_prompt() {
+  state=$TMP/state-stdin
+  prompt=$TMP/stdin-prompt
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=108 HMM_TTY=/dev/ttys108 \
+    HMM_FAKE_CODEX_PROMPT=$prompt \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions <<'EOF' >/dev/null || return 1
+Hey here I can type whatever I'd like, right?
+Including * ? | > < ; $(stuff) and "quotes".
+EOF
+
+  content=$(sed -n '1,80p' "$prompt")
+  assert_contains "$content" "whatever I'd like, right?" 'stdin prompt apostrophe' || return 1
+  assert_contains "$content" 'Including * ? | > < ; $(stuff) and "quotes".' 'stdin prompt metacharacters'
+}
+
+test_write_safety_flag() {
+  state=$TMP/state-write
+  args=$TMP/write-args
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=105 HMM_TTY=/dev/ttys105 \
+    HMM_FAKE_CODEX_ARGS=$args \
+    "$ROOT/bin/hmm" --new --write --no-spinner --no-color --no-instructions hi >/dev/null || return 1
+
+  assert_file_contains "$args" '<sandbox_mode="workspace-write">' 'write safety flag'
+}
+
+test_danger_safety_flag() {
+  state=$TMP/state-danger
+  args=$TMP/danger-args
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=106 HMM_TTY=/dev/ttys106 \
+    HMM_FAKE_CODEX_ARGS=$args \
+    "$ROOT/bin/hmm" --new --danger --no-spinner --no-color --no-instructions hi >/dev/null 2>/dev/null || return 1
+
+  assert_file_contains "$args" '<--dangerously-bypass-approvals-and-sandbox>' 'danger safety flag'
+}
+
+test_codex_exit_status_propagates() {
+  state=$TMP/state-exit
+  HMM_STATE_DIR=$state HMM_SHELL_PID=107 HMM_TTY=/dev/ttys107 \
+    HMM_FAKE_CODEX_EXIT=42 \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions hi >/dev/null 2>/dev/null
+  status=$?
+  [ "$status" -eq 42 ]
+}
+
+test_zsh_noglob_alias() {
+  if ! command -v zsh >/dev/null 2>&1; then
+    skip_test 'zsh noglob alias'
+    return 0
+  fi
+
+  zsh -ic 'source shell/zsh.sh; eval "hmm --help work? >/dev/null"' >/dev/null 2>&1
+}
+
+run_test 'shell syntax' test_shell_syntax
+run_test 'help does not require writable tmp' test_help_without_tmp
+run_test 'session save/show/reset' test_session_save_show_reset
+run_test 'bin reset before show' test_bin_reset_before_show
+run_test 'renderer fixture' test_renderer_fixture
+run_test 'renderer ignores unwritable meta dir' test_renderer_unwritable_meta_is_quiet
+run_test 'bin uses fake codex and saves session' test_bin_uses_fake_codex_and_saves_session
+run_test 'direct bin continuity without wrapper env' test_direct_bin_continuity_without_wrapper_env
+run_test 'bin can disable default instructions' test_bin_no_instructions
+run_test 'bin reads stdin prompt' test_bin_reads_stdin_prompt
+run_test 'write safety flag' test_write_safety_flag
+run_test 'danger safety flag' test_danger_safety_flag
+run_test 'codex exit status propagates' test_codex_exit_status_propagates
+run_test 'zsh noglob alias' test_zsh_noglob_alias
+
+printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
+
+[ "$fail" -eq 0 ]

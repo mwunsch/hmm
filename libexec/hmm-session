@@ -1,0 +1,54 @@
+#!/bin/sh
+
+set -u
+
+die() {
+  printf 'hmm-session: %s\n' "$*" >&2
+  exit 1
+}
+
+state_root=${HMM_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/hmm}
+session_dir=$state_root/sessions
+
+shell_pid=${HMM_SHELL_PID:-${PPID:-unknown}}
+tty_name=${HMM_TTY:-}
+if [ -z "$tty_name" ]; then
+  tty_name=$(tty 2>/dev/null || printf 'notty')
+fi
+
+raw_key=$shell_pid:$tty_name
+if command -v shasum >/dev/null 2>&1; then
+  key=$(printf '%s' "$raw_key" | shasum | awk '{print $1}')
+else
+  key=$(printf '%s' "$raw_key" | cksum | awk '{print $1 "-" $2}')
+fi
+
+session_file=$session_dir/$key
+
+case ${1:-path} in
+  path)
+    mkdir -p "$session_dir" || die "cannot create $session_dir"
+    printf '%s\n' "$session_file"
+    ;;
+  show)
+    if [ -s "$session_file" ]; then
+      sed -n '1p' "$session_file"
+    else
+      printf '(no active thread)\n'
+    fi
+    ;;
+  reset|forget)
+    rm -f "$session_file" || die "cannot remove $session_file"
+    ;;
+  save)
+    [ "$#" -ge 2 ] || die "save requires a session id"
+    mkdir -p "$session_dir" || die "cannot create $session_dir"
+    tmp=$session_file.$$
+    printf '%s\n' "$2" >"$tmp" || die "cannot write $tmp"
+    mv "$tmp" "$session_file" || die "cannot update $session_file"
+    printf '%s\n' "$session_file"
+    ;;
+  *)
+    die "unknown command: $1"
+    ;;
+esac

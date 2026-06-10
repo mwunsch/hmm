@@ -1,0 +1,295 @@
+#!/bin/sh
+
+set -u
+
+meta_dir=
+color_mode=auto
+spinner_mode=auto
+quiet=0
+verbose=0
+raw_json=0
+model=
+
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --meta-dir)
+      meta_dir=$2
+      shift 2
+      ;;
+    --color)
+      color_mode=$2
+      shift 2
+      ;;
+    --spinner)
+      spinner_mode=$2
+      shift 2
+      ;;
+    --model)
+      model=$2
+      shift 2
+      ;;
+    --quiet)
+      quiet=1
+      shift
+      ;;
+    --verbose)
+      verbose=1
+      shift
+      ;;
+    --json)
+      raw_json=1
+      shift
+      ;;
+    *)
+      printf 'hmm-render: unknown option: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+[ -n "$meta_dir" ] || meta_dir=${TMPDIR:-/tmp}/hmm-render.$$
+mkdir -p "$meta_dir" 2>/dev/null || :
+
+is_tty=0
+[ -t 1 ] && is_tty=1
+
+use_color=0
+case $color_mode in
+  always) use_color=1 ;;
+  never) use_color=0 ;;
+  auto) [ "$is_tty" -eq 1 ] && command -v tput >/dev/null 2>&1 && use_color=1 ;;
+esac
+
+if [ "$use_color" -eq 1 ] && command -v tput >/dev/null 2>&1; then
+  bold=$(tput bold 2>/dev/null || printf '')
+  dim=$(tput dim 2>/dev/null || printf '')
+  red=$(tput setaf 1 2>/dev/null || printf '')
+  green=$(tput setaf 2 2>/dev/null || printf '')
+  yellow=$(tput setaf 3 2>/dev/null || printf '')
+  cyan=$(tput setaf 6 2>/dev/null || printf '')
+  reset=$(tput sgr0 2>/dev/null || printf '')
+else
+  bold= dim= red= green= yellow= cyan= reset=
+fi
+
+use_spinner=0
+case $spinner_mode in
+  never) use_spinner=0 ;;
+  auto|always)
+    [ "$raw_json" -eq 0 ] && [ "$quiet" -eq 0 ] && [ "$is_tty" -eq 1 ] && use_spinner=1
+    ;;
+esac
+
+spinner_pid=
+spinner_running=0
+
+start_spinner() {
+  [ "$use_spinner" -eq 1 ] || return 0
+  [ "$spinner_running" -eq 0 ] || return 0
+  (
+    frames='-\|/'
+    i=1
+    while :; do
+      frame=$(printf '%s' "$frames" | cut -c "$i")
+      printf '\r%s hmm thinking...%s' "$dim$frame" "$reset"
+      i=$((i + 1))
+      [ "$i" -gt 4 ] && i=1
+      sleep 0.12
+    done
+  ) &
+  spinner_pid=$!
+  spinner_running=1
+}
+
+stop_spinner() {
+  [ "$spinner_running" -eq 1 ] || return 0
+  kill "$spinner_pid" >/dev/null 2>&1 || :
+  wait "$spinner_pid" >/dev/null 2>&1 || :
+  spinner_running=0
+  printf '\r\033[K'
+}
+
+finish() {
+  stop_spinner
+}
+trap finish EXIT HUP INT TERM
+
+json_get() {
+  printf '%s\n' "$1" | jq -r "$2 // empty" 2>/dev/null
+}
+
+context_window() {
+  case $1 in
+    gpt-5.5*|gpt-5*) printf '400000\n' ;;
+    o3*|o4*) printf '200000\n' ;;
+    *) printf '0\n' ;;
+  esac
+}
+
+format_int() {
+  # Perl is widely available on macOS and common Unix systems; fall back cleanly.
+  if command -v perl >/dev/null 2>&1; then
+    perl -e '$n = shift; 1 while $n =~ s/^(-?\d+)(\d{3})/$1,$2/; print $n' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$1"
+}
+
+compact_num() {
+  if command -v awk >/dev/null 2>&1; then
+    awk -v n="$1" 'BEGIN {
+      if (n >= 1000000) printf "%.1fm", n / 1000000;
+      else if (n >= 10000) printf "%.1fk", n / 1000;
+      else if (n >= 1000) printf "%.1fk", n / 1000;
+      else printf "%d", n;
+    }'
+    return 0
+  fi
+  format_int "$1"
+}
+
+now_ms() {
+  if command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=time -e 'printf "%.0f\n", time() * 1000' 2>/dev/null && return 0
+  fi
+  printf '%s000\n' "$(date +%s 2>/dev/null || printf 0)"
+}
+
+format_elapsed() {
+  if command -v awk >/dev/null 2>&1; then
+    awk -v ms="$1" 'BEGIN {
+      if (ms < 1000) printf "%dms", ms;
+      else if (ms < 10000) printf "%.1fs", ms / 1000;
+      else printf "%.0fs", ms / 1000;
+    }'
+    return 0
+  fi
+  printf '%ss' "$((($1 + 999) / 1000))"
+}
+
+print_usage() {
+  [ "$raw_json" -eq 0 ] || return 0
+  [ "$quiet" -eq 0 ] || return 0
+  [ -n "${input_tokens:-}" ] || return 0
+
+  total=$((input_tokens + output_tokens))
+  input_fmt=$(compact_num "$input_tokens")
+  output_fmt=$(compact_num "$output_tokens")
+  total_fmt=$(compact_num "$total")
+  elapsed_ms=$(( $(now_ms) - start_ms ))
+  elapsed=$(format_elapsed "$elapsed_ms")
+
+  window=$(context_window "$model")
+  if [ "$window" -gt 0 ]; then
+    pct=$((total * 100 / window))
+    printf '\n%s%s in / %s out · %s total · %s · %s%% ctx%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$pct" "$reset"
+  else
+    printf '\n%s%s in / %s out · %s total · %s%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$reset"
+  fi
+}
+
+input_tokens=
+output_tokens=
+start_ms=$(now_ms)
+
+start_spinner
+
+while IFS= read -r line; do
+  if [ "$raw_json" -eq 1 ]; then
+    printf '%s\n' "$line"
+  fi
+
+  type=$(json_get "$line" '.type')
+  [ -n "$type" ] || continue
+
+  case $type in
+    thread.started)
+      thread_id=$(json_get "$line" '.thread_id')
+      if [ -n "$thread_id" ] && [ -d "$meta_dir" ] && [ -w "$meta_dir" ]; then
+        printf '%s\n' "$thread_id" >"$meta_dir/thread_id"
+      fi
+      ;;
+    item.started)
+      [ "$raw_json" -eq 0 ] || continue
+      [ "$quiet" -eq 0 ] || continue
+      item_type=$(json_get "$line" '.item.type')
+      label=$(json_get "$line" '.item.command')
+      [ -n "$label" ] || label=$(json_get "$line" '.item.name')
+      [ -n "$label" ] || label=$item_type
+      stop_spinner
+      case $item_type in
+        command_execution)
+          printf '%s> shell: %s%s\n' "$dim" "$label" "$reset"
+          ;;
+        *)
+          printf '%s> tool: %s%s\n' "$dim" "$label" "$reset"
+          ;;
+      esac
+      start_spinner
+      ;;
+    item.completed)
+      item_type=$(json_get "$line" '.item.type')
+      case $item_type in
+        agent_message)
+          text=$(json_get "$line" '.item.text')
+          [ -n "$text" ] || continue
+          if [ "$raw_json" -eq 0 ]; then
+            stop_spinner
+            if [ "$quiet" -eq 1 ]; then
+              printf '%s\n' "$text"
+            else
+              printf '%s%s%s\n' "$bold" "$text" "$reset"
+            fi
+            start_spinner
+          fi
+          ;;
+        command_execution)
+          [ "$raw_json" -eq 0 ] || continue
+          [ "$quiet" -eq 0 ] || continue
+          exit_code=$(json_get "$line" '.item.exit_code')
+          [ -n "$exit_code" ] || exit_code=unknown
+          output=$(json_get "$line" '.item.aggregated_output')
+          stop_spinner
+          if [ "$exit_code" = 0 ]; then
+            printf '%s%sok%s shell completed%s\n' "$dim" "$green" "$dim" "$reset"
+          else
+            printf '%s%sfail%s shell exited %s%s\n' "$dim" "$red" "$dim" "$exit_code" "$reset"
+          fi
+          if [ "$verbose" -eq 1 ] && [ -n "$output" ]; then
+            printf '%s%s%s\n' "$dim" "$output" "$reset"
+          fi
+          start_spinner
+          ;;
+        *)
+          [ "$raw_json" -eq 0 ] || continue
+          [ "$quiet" -eq 0 ] || continue
+          label=$(json_get "$line" '.item.name')
+          [ -n "$label" ] || label=$(json_get "$line" '.item.command')
+          [ -n "$label" ] || label=$item_type
+          stop_spinner
+          if [ "$verbose" -eq 1 ]; then
+            printf '%s> tool: %s (%s)%s\n' "$dim" "$label" "$item_type" "$reset"
+          else
+            printf '%s> tool: %s%s\n' "$dim" "$label" "$reset"
+          fi
+          start_spinner
+          ;;
+      esac
+      ;;
+    turn.completed)
+      input_tokens=$(json_get "$line" '.usage.input_tokens')
+      output_tokens=$(json_get "$line" '.usage.output_tokens')
+      [ -n "$input_tokens" ] || input_tokens=0
+      [ -n "$output_tokens" ] || output_tokens=0
+      ;;
+    *)
+      if [ "$verbose" -eq 1 ] && [ "$raw_json" -eq 0 ] && [ "$quiet" -eq 0 ]; then
+        stop_spinner
+        printf '%s> event: %s%s\n' "$dim" "$type" "$reset"
+        start_spinner
+      fi
+      ;;
+  esac
+done
+
+stop_spinner
+print_usage

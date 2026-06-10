@@ -1,0 +1,103 @@
+#!/bin/sh
+
+set -u
+
+die() {
+  printf 'hmm-codex: %s\n' "$*" >&2
+  exit 1
+}
+
+mode=start
+session_id=
+args_file=
+safety=read-only
+
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --mode)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      mode=$2
+      shift 2
+      ;;
+    --session-id)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      session_id=$2
+      shift 2
+      ;;
+    --args-file)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      args_file=$2
+      shift 2
+      ;;
+    --safety)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      safety=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+[ "$#" -ge 1 ] || die "missing prompt"
+prompt=$1
+
+case $mode in
+  start|resume) ;;
+  *) die "invalid mode: $mode" ;;
+esac
+
+case $safety in
+  read-only|workspace-write|danger) ;;
+  *) die "invalid safety mode: $safety" ;;
+esac
+
+if [ "$mode" = resume ] && [ -z "$session_id" ]; then
+  die "resume mode requires a session id"
+fi
+
+set -- codex exec
+
+if [ "$mode" = resume ]; then
+  set -- "$@" resume
+fi
+
+set -- "$@" --json --skip-git-repo-check
+
+case $safety in
+  read-only)
+    set -- "$@" --config 'sandbox_mode="read-only"'
+    ;;
+  workspace-write)
+    set -- "$@" --config 'sandbox_mode="workspace-write"'
+    ;;
+  danger)
+    set -- "$@" --dangerously-bypass-approvals-and-sandbox
+    ;;
+esac
+
+if [ -n "$args_file" ] && [ -s "$args_file" ]; then
+  while IFS= read -r arg; do
+    set -- "$@" "$arg"
+  done <"$args_file"
+fi
+
+if [ "$mode" = resume ]; then
+  set -- "$@" "$session_id"
+fi
+
+set -- "$@" "$prompt"
+
+"$@"
+status=$?
+
+if [ -n "${HMM_CODEX_STATUS_FILE:-}" ]; then
+  printf '%s\n' "$status" >"$HMM_CODEX_STATUS_FILE"
+fi
+
+exit "$status"
