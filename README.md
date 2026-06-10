@@ -217,9 +217,11 @@ done
 
 The renderer is deliberately compact:
 
+- while Codex is thinking, a spinner and yellow `hmmmm...` indicator grow across the terminal with a dim `(thinking)` label
 - assistant messages are bold when color/style is available
 - shell tool use is shown as dim start/completion lines
 - token usage and elapsed time are shown at the end when Codex emits usage data
+- `--no-spinner` disables the thinking indicator
 - `--verbose` shows extra event details
 - `--json` bypasses rendering and prints raw Codex JSONL
 
