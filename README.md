@@ -46,14 +46,62 @@ plain text.
 
 ## Install
 
-Add `bin` to your `PATH` and evaluate the generated zsh integration:
+From a cloned checkout:
+
+```sh
+./install.sh
+```
+
+This installs:
+
+```text
+~/.local/bin/hmm
+~/.local/libexec/hmm-*
+```
+
+For zsh, it also updates `~/.zshrc` with a managed block that evaluates the
+generated shell integration.
+
+Restart your shell after installation, or run:
+
+```zsh
+source ~/.zshrc
+```
+
+Manual setup is still just two lines:
 
 ```zsh
 export PATH="/path/to/hmm/bin:$PATH"
 eval "$(hmm --shell-init zsh)"
 ```
 
-For a persistent install, add both lines to `~/.zshrc`.
+For a future hosted one-line install, publish this repo and run the installer
+with a repo or tarball URL:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/<owner>/hmm/main/install.sh \
+  | HMM_REPO=https://github.com/<owner>/hmm sh
+```
+
+Or pin a specific archive:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/<owner>/hmm/main/install.sh \
+  | HMM_TARBALL_URL=https://github.com/<owner>/hmm/archive/refs/tags/v0.1.0.tar.gz sh
+```
+
+Installer environment variables:
+
+```text
+HMM_PREFIX        install prefix, default: ~/.local
+HMM_BIN_DIR       override binary directory, default: $HMM_PREFIX/bin
+HMM_NO_RC=1       skip shell rc modification
+HMM_SHELL=zsh     force shell integration choice
+HMM_RC_FILE=path  override rc file, default for zsh: ~/.zshrc
+HMM_REPO=url      GitHub-style repo URL for curl installs
+HMM_REF=name      branch name for HMM_REPO archives, default: main
+HMM_TARBALL_URL   explicit source archive URL for curl installs
+```
 
 After evaluating the shell integration, run `hmm`, not `bin/hmm`. The `hmm`
 alias/function is what enables `noglob` and the zsh compose prompt. Direct
@@ -347,6 +395,9 @@ libexec/hmm-render
 
 bin/hmm --shell-init zsh
   prints the zsh function and noglob alias used for shell-native prompts
+
+install.sh
+  installs the CLI and writes an idempotent zsh rc block
 ```
 
 Codex remains responsible for tools, MCP, skills, sandboxing, approvals, and
@@ -382,6 +433,7 @@ Current coverage includes:
 
 - shell syntax for all scripts
 - generated zsh integration syntax
+- local installer behavior and idempotent zsh rc updates
 - `--help` without writable temp space
 - session save/show/reset behavior
 - `--reset --show` ordering

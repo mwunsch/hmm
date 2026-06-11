@@ -101,6 +101,7 @@ run_test() {
 
 test_shell_syntax() {
   /bin/sh -n "$ROOT/bin/hmm" \
+    "$ROOT/install.sh" \
     "$ROOT/libexec/hmm-session" \
     "$ROOT/libexec/hmm-codex" \
     "$ROOT/libexec/hmm-render" || return 1
@@ -114,6 +115,42 @@ test_shell_syntax() {
 test_help_without_tmp() {
   output=$(TERM=dumb TMPDIR=/dev/null "$ROOT/bin/hmm" --help 2>&1) || return 1
   assert_contains "$output" 'usage: hmm' 'help without tmp'
+}
+
+test_install_local_no_rc() {
+  prefix=$TMP/install-no-rc
+
+  HMM_PREFIX=$prefix HMM_NO_RC=1 "$ROOT/install.sh" >/dev/null || return 1
+  prefix_real=$(CDPATH= cd -- "$prefix" && pwd -P) || return 1
+
+  [ -x "$prefix_real/bin/hmm" ] || return 1
+  [ -x "$prefix_real/libexec/hmm-codex" ] || return 1
+  [ -x "$prefix_real/libexec/hmm-render" ] || return 1
+  [ -x "$prefix_real/libexec/hmm-session" ] || return 1
+
+  output=$("$prefix_real/bin/hmm" --shell-init zsh) || return 1
+  assert_contains "$output" "local hmm_bin=\"$prefix_real/bin/hmm\"" 'installed shell init path'
+}
+
+test_install_updates_zshrc_idempotently() {
+  prefix=$TMP/install-rc
+  rc=$TMP/home/.zshrc
+
+  mkdir -p "$TMP/home" || return 1
+  printf '%s\n' '# existing rc' >"$rc"
+
+  HMM_PREFIX=$prefix HMM_SHELL=zsh HMM_RC_FILE=$rc "$ROOT/install.sh" >/dev/null || return 1
+  HMM_PREFIX=$prefix HMM_SHELL=zsh HMM_RC_FILE=$rc "$ROOT/install.sh" >/dev/null || return 1
+  prefix_real=$(CDPATH= cd -- "$prefix" && pwd -P) || return 1
+
+  content=$(sed -n '1,120p' "$rc")
+  assert_contains "$content" '# existing rc' 'installer preserves existing rc' || return 1
+  assert_contains "$content" '# >>> hmm >>>' 'installer adds start marker' || return 1
+  assert_contains "$content" '# <<< hmm <<<' 'installer adds end marker' || return 1
+  assert_contains "$content" "eval \"\$(\"$prefix_real/bin/hmm\" --shell-init zsh)\"" 'installer adds generated init eval' || return 1
+
+  count=$(awk '/^# >>> hmm >>>$/ { c++ } END { print c + 0 }' "$rc")
+  [ "$count" -eq 1 ]
 }
 
 test_session_save_show_reset() {
@@ -273,6 +310,8 @@ test_zsh_noglob_alias() {
 
 run_test 'shell syntax' test_shell_syntax
 run_test 'help does not require writable tmp' test_help_without_tmp
+run_test 'install local without rc update' test_install_local_no_rc
+run_test 'install updates zshrc idempotently' test_install_updates_zshrc_idempotently
 run_test 'session save/show/reset' test_session_save_show_reset
 run_test 'bin reset before show' test_bin_reset_before_show
 run_test 'renderer fixture' test_renderer_fixture
