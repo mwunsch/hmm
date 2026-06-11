@@ -194,9 +194,9 @@ print_usage() {
   window=$(context_window "$model")
   if [ "$window" -gt 0 ]; then
     pct=$((total * 100 / window))
-    printf '\n%s%s in / %s out · %s total · %s · %s%% ctx%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$pct" "$reset"
+    printf '\n%s%s in / %s out · %s total · %s · %s%% ctx%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$pct" "$reset" >&2
   else
-    printf '\n%s%s in / %s out · %s total · %s%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$reset"
+    printf '\n%s%s in / %s out · %s total · %s%s\n' "$dim" "$input_fmt" "$output_fmt" "$total_fmt" "$elapsed" "$reset" >&2
   fi
 }
 

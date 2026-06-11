@@ -19,7 +19,7 @@ able to use Codex tools without becoming a second agent harness.
 
 This repo currently implements a zsh-first v1:
 
-- shell-native prompt capture via `shell/zsh.sh`
+- shell-native prompt capture via generated zsh integration
 - sticky sessions scoped to the current terminal
 - `codex exec --json` backend
 - compact rendering for assistant output, shell tool use, and token usage
@@ -46,14 +46,20 @@ plain text.
 
 ## Install
 
-Add `bin` to your `PATH` and source the zsh integration:
+Add `bin` to your `PATH` and evaluate the generated zsh integration:
 
 ```zsh
 export PATH="/path/to/hmm/bin:$PATH"
-source /path/to/hmm/shell/zsh.sh
+eval "$(hmm --shell-init zsh)"
 ```
 
-The zsh integration defines:
+For a persistent install, add both lines to `~/.zshrc`.
+
+After evaluating the shell integration, run `hmm`, not `bin/hmm`. The `hmm`
+alias/function is what enables `noglob` and the zsh compose prompt. Direct
+`bin/hmm` calls bypass the shell integration and use the portable fallback path.
+
+The generated zsh integration defines:
 
 ```zsh
 alias hmm='noglob _hmm'
@@ -77,6 +83,21 @@ hmm summarize what is in $PWD
 hmm --write create a tarball of this directory
 hmm --new explain rsync include and exclude rules
 ```
+
+Run `hmm` with no prompt to open a small compose prompt:
+
+```text
+hmm> 
+```
+
+In zsh, the shell integration uses zsh's line editor for this prompt, so normal
+line-editing keys work. Press Enter to submit. Direct `bin/hmm` also supports a
+basic prompt, but without zsh line-editor affordances.
+
+`Opt+Enter` and `Shift+Enter` are terminal-emulator conventions, not portable
+shell signals. The generated zsh prompt binds common sequences for them to insert
+a newline, but support depends on your terminal. For reliable multiline or
+punctuation-heavy prompts, use a quoted heredoc.
 
 Everything after the recognized leading flags is joined into one prompt. If your
 prompt itself starts with a flag-like token, use `--`:
@@ -228,6 +249,12 @@ The renderer is deliberately compact:
 Context utilization is shown only when `hmm` knows the model's context window.
 Unknown models show token counts without a percentage.
 
+Stream behavior:
+
+- assistant text and compact tool visualization go to stdout
+- token usage, elapsed time, warnings, and errors go to stderr
+- `--json` prints raw Codex JSONL to stdout and suppresses the usage footer
+
 ## Piped Input
 
 Codex supports prompts plus piped stdin. `hmm` preserves that behavior:
@@ -265,7 +292,7 @@ bin/hmm Hey does this work?
 ```
 
 In that form, zsh expands `work?` before `bin/hmm` starts and may fail with
-`zsh: no matches found`. Use the sourced `hmm` command, quote the prompt, or run
+`zsh: no matches found`. Use the shell-integrated `hmm` command, quote the prompt, or run
 `noglob bin/hmm ...` when debugging the executable directly.
 
 Other shell metacharacters are still shell syntax before `hmm` ever sees them:
@@ -318,8 +345,8 @@ libexec/hmm-render
   consumes Codex JSONL
   renders assistant text, shell tool use, and usage data
 
-shell/zsh.sh
-  provides the terminal-native unquoted prompt experience
+bin/hmm --shell-init zsh
+  prints the zsh function and noglob alias used for shell-native prompts
 ```
 
 Codex remains responsible for tools, MCP, skills, sandboxing, approvals, and
@@ -354,6 +381,7 @@ Good shell-script tests for this project should:
 Current coverage includes:
 
 - shell syntax for all scripts
+- generated zsh integration syntax
 - `--help` without writable temp space
 - session save/show/reset behavior
 - `--reset --show` ordering

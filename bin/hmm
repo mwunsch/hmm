@@ -27,12 +27,67 @@ Options:
   --no-spinner            Disable the loading spinner
   --instructions <text>   Override the default hmm instruction prefix
   --no-instructions       Send the prompt without hmm's instruction prefix
+  --shell-init <shell>    Print shell integration code (currently: zsh)
   --help, -h              Show this help
 EOF
 }
 
 need() {
   command -v "$1" >/dev/null 2>&1 || die "missing required dependency: $1"
+}
+
+quote_dq() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g'
+}
+
+print_shell_init() {
+  shell_name=$1
+  script_base=${script##*/}
+  hmm_bin=$(quote_dq "$script_dir/$script_base")
+
+  case $shell_name in
+    zsh)
+      cat <<EOF
+# hmm zsh integration
+_hmm() {
+  local hmm_bin="$hmm_bin"
+
+  if [[ ! -x "\$hmm_bin" ]]; then
+    hmm_bin=\$(whence -p -- hmm 2>/dev/null)
+  fi
+
+  if [[ -z "\$hmm_bin" || ! -x "\$hmm_bin" ]]; then
+    print -u2 'hmm: executable not found'
+    return 127
+  fi
+
+  if [[ \$# -eq 0 && -t 0 && -t 1 ]]; then
+    _hmm_insert_newline() { LBUFFER+=\$'\n' }
+    zle -N _hmm_insert_newline
+
+    bindkey -N hmm-compose emacs 2>/dev/null || bindkey -N hmm-compose
+    bindkey -M hmm-compose '^[^M' _hmm_insert_newline 2>/dev/null
+    bindkey -M hmm-compose '^[^J' _hmm_insert_newline 2>/dev/null
+    bindkey -M hmm-compose '^[[13;2u' _hmm_insert_newline 2>/dev/null
+    bindkey -M hmm-compose '^[[13;3u' _hmm_insert_newline 2>/dev/null
+
+    local hmm_prompt=
+    vared -M hmm-compose -p 'hmm> ' hmm_prompt || return \$?
+    [[ -n "\$hmm_prompt" ]] || return 1
+    HMM_SHELL_PID=\$\$ HMM_TTY="\$(tty 2>/dev/null)" command "\$hmm_bin" -- "\$hmm_prompt"
+    return \$?
+  fi
+
+  HMM_SHELL_PID=\$\$ HMM_TTY="\$(tty 2>/dev/null)" command "\$hmm_bin" "\$@"
+}
+
+alias hmm='noglob _hmm'
+EOF
+      ;;
+    *)
+      die "unsupported shell for --shell-init: $shell_name"
+      ;;
+  esac
 }
 
 script=$0
@@ -44,6 +99,18 @@ esac
 script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" 2>/dev/null && pwd -P) || die "cannot resolve script directory"
 root_dir=$(CDPATH= cd -- "$script_dir/.." 2>/dev/null && pwd -P) || die "cannot resolve install root"
 libexec_dir=${HMM_LIBEXEC:-"$root_dir/libexec"}
+
+case ${1:-} in
+  --shell-init)
+    [ "$#" -ge 2 ] || die "--shell-init requires a shell name"
+    print_shell_init "$2"
+    exit 0
+    ;;
+  --shell-init=*)
+    print_shell_init "${1#--shell-init=}"
+    exit 0
+    ;;
+esac
 
 session_tool=$libexec_dir/hmm-session
 codex_tool=$libexec_dir/hmm-codex
@@ -239,6 +306,16 @@ if [ -z "$prompt" ] && [ ! -t 0 ]; then
       printf '%s\n' "$line"
     done
   )
+fi
+
+if [ -z "$prompt" ] && [ -t 0 ]; then
+  if [ -r /dev/tty ]; then
+    printf 'hmm> ' >/dev/tty
+    if ! IFS= read -r prompt </dev/tty; then
+      printf '\n' >/dev/tty
+      exit 130
+    fi
+  fi
 fi
 
 [ -n "$prompt" ] || die "usage: hmm <prompt>"

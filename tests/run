@@ -106,7 +106,8 @@ test_shell_syntax() {
     "$ROOT/libexec/hmm-render" || return 1
 
   if command -v zsh >/dev/null 2>&1; then
-    zsh -n "$ROOT/shell/zsh.sh" || return 1
+    "$ROOT/bin/hmm" --shell-init zsh >"$TMP/zsh-init" || return 1
+    zsh -n "$TMP/zsh-init" || return 1
   fi
 }
 
@@ -143,19 +144,27 @@ test_bin_reset_before_show() {
 }
 
 test_renderer_fixture() {
-  output=$(printf '%s\n' \
+  stdout=$TMP/render-stdout
+  stderr=$TMP/render-stderr
+
+  printf '%s\n' \
     '{"type":"thread.started","thread_id":"abc123"}' \
     '{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc pwd"}}' \
     '{"type":"item.completed","item":{"type":"command_execution","exit_code":0,"aggregated_output":"/tmp\\n"}}' \
     '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}' \
     '{"type":"turn.completed","usage":{"input_tokens":1200,"output_tokens":34}}' |
-    "$ROOT/libexec/hmm-render" --meta-dir "$TMP/meta" --color never --spinner never) || return 1
+    "$ROOT/libexec/hmm-render" --meta-dir "$TMP/meta" --color never --spinner never >"$stdout" 2>"$stderr" || return 1
 
+  output=$(sed -n '1,80p' "$stdout")
+  usage=$(sed -n '1,80p' "$stderr")
   assert_contains "$output" '> shell: /bin/zsh -lc pwd' 'renderer shell start' || return 1
   assert_contains "$output" 'ok shell completed' 'renderer shell completion' || return 1
   assert_contains "$output" 'done' 'renderer agent text' || return 1
-  assert_contains "$output" '1.2k in / 34 out' 'renderer compact usage' || return 1
-  assert_contains "$output" '·' 'renderer elapsed separator'
+  case $output in
+    *'1.2k in / 34 out'*) return 1 ;;
+  esac
+  assert_contains "$usage" '1.2k in / 34 out' 'renderer compact usage on stderr' || return 1
+  assert_contains "$usage" '·' 'renderer elapsed separator'
 }
 
 test_renderer_unwritable_meta_is_quiet() {
@@ -186,7 +195,7 @@ test_direct_bin_continuity_without_wrapper_env() {
   state=$TMP/state-direct-continuity
 
   HMM_STATE_DIR=$state HMM_FAKE_THREAD_ID=direct-thread HMM_FAKE_TEXT=hello \
-    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions hello >/dev/null || return 1
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions hello >/dev/null 2>/dev/null || return 1
 
   output=$(HMM_STATE_DIR=$state "$ROOT/bin/hmm" --show) || return 1
   [ "$output" = direct-thread ]
@@ -198,7 +207,7 @@ test_bin_no_instructions() {
 
   HMM_STATE_DIR=$state HMM_SHELL_PID=104 HMM_TTY=/dev/ttys104 \
     HMM_FAKE_CODEX_PROMPT=$prompt \
-    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions plain-prompt >/dev/null || return 1
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions plain-prompt >/dev/null 2>/dev/null || return 1
 
   content=$(sed -n '1,40p' "$prompt")
   [ "$content" = plain-prompt ]
@@ -210,7 +219,7 @@ test_bin_reads_stdin_prompt() {
 
   HMM_STATE_DIR=$state HMM_SHELL_PID=108 HMM_TTY=/dev/ttys108 \
     HMM_FAKE_CODEX_PROMPT=$prompt \
-    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions <<'EOF' >/dev/null || return 1
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions <<'EOF' >/dev/null 2>/dev/null || return 1
 Hey here I can type whatever I'd like, right?
 Including * ? | > < ; $(stuff) and "quotes".
 EOF
@@ -226,7 +235,7 @@ test_write_safety_flag() {
 
   HMM_STATE_DIR=$state HMM_SHELL_PID=105 HMM_TTY=/dev/ttys105 \
     HMM_FAKE_CODEX_ARGS=$args \
-    "$ROOT/bin/hmm" --new --write --no-spinner --no-color --no-instructions hi >/dev/null || return 1
+    "$ROOT/bin/hmm" --new --write --no-spinner --no-color --no-instructions hi >/dev/null 2>/dev/null || return 1
 
   assert_file_contains "$args" '<sandbox_mode="workspace-write">' 'write safety flag'
 }
@@ -257,7 +266,9 @@ test_zsh_noglob_alias() {
     return 0
   fi
 
-  zsh -ic 'source shell/zsh.sh; eval "hmm --help work? >/dev/null"' >/dev/null 2>&1
+  init=$TMP/zsh-init-alias
+  "$ROOT/bin/hmm" --shell-init zsh >"$init" || return 1
+  zsh -ic "source '$init'; eval 'hmm --help work? >/dev/null'" >/dev/null 2>&1
 }
 
 run_test 'shell syntax' test_shell_syntax
