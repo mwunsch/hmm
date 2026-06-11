@@ -75,19 +75,17 @@ export PATH="/path/to/hmm/bin:$PATH"
 eval "$(hmm --shell-init zsh)"
 ```
 
-For a future hosted one-line install, publish this repo and run the installer
-with a repo or tarball URL:
+One-line install from GitHub:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/hmm/main/install.sh \
-  | HMM_REPO=https://github.com/<owner>/hmm sh
+curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh | sh
 ```
 
 Or pin a specific archive:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/hmm/main/install.sh \
-  | HMM_TARBALL_URL=https://github.com/<owner>/hmm/archive/refs/tags/v0.1.0.tar.gz sh
+curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
+  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/archive/refs/tags/v0.1.0.tar.gz sh
 ```
 
 Installer environment variables:
@@ -98,10 +96,25 @@ HMM_BIN_DIR       override binary directory, default: $HMM_PREFIX/bin
 HMM_NO_RC=1       skip shell rc modification
 HMM_SHELL=zsh     force shell integration choice
 HMM_RC_FILE=path  override rc file, default for zsh: ~/.zshrc
-HMM_REPO=url      GitHub-style repo URL for curl installs
+HMM_REPO=url      GitHub-style repo URL, default: https://github.com/mwunsch/hmm
 HMM_REF=name      branch name for HMM_REPO archives, default: main
 HMM_TARBALL_URL   explicit source archive URL for curl installs
 ```
+
+## Releases
+
+CI runs `tests/run` on pushes and pull requests across Ubuntu and macOS.
+
+To publish a versioned GitHub Release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow runs the test suite, then creates a GitHub Release for the
+tag. GitHub automatically provides source archives for each tag; use
+`HMM_TARBALL_URL` to pin installs to one of those archives.
 
 After evaluating the shell integration, run `hmm`, not `bin/hmm`. The `hmm`
 alias/function is what enables `noglob` and the zsh compose prompt. Direct

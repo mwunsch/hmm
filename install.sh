@@ -77,12 +77,13 @@ download_source() {
   work_dir=$1
 
   tarball_url=${HMM_TARBALL_URL:-}
-  if [ -z "$tarball_url" ] && [ -n "${HMM_REPO:-}" ]; then
+  if [ -z "$tarball_url" ]; then
+    repo=${HMM_REPO:-https://github.com/mwunsch/hmm}
     ref=${HMM_REF:-main}
-    tarball_url=${HMM_REPO%/}/archive/refs/heads/$ref.tar.gz
+    tarball_url=${repo%/}/archive/refs/heads/$ref.tar.gz
   fi
 
-  [ -n "$tarball_url" ] || die "no local checkout found; set HMM_TARBALL_URL or HMM_REPO for curl installs"
+  [ -n "$tarball_url" ] || die "no source archive configured"
 
   need curl
   need tar
