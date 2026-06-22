@@ -17,6 +17,7 @@ Options:
   --model, -m <model>     Use a Codex model for this turn
   --profile, -p <name>    Use a Codex config profile
   --config, -c <k=v>      Pass a Codex config override
+  --file, -f <file>       Read the prompt from a file (- for stdin)
   --write                 Allow workspace writes for this turn
   --danger                Bypass Codex approvals and sandboxing
   --quiet                 Print only assistant messages
@@ -24,10 +25,9 @@ Options:
   --json                  Print raw Codex JSONL events
   --color <mode>          auto, always, or never
   --no-color              Disable color
-  --no-spinner            Disable the loading spinner
+  --no-spinner            Disable the thinking indicator
   --instructions <text>   Override the default hmm instruction prefix
   --no-instructions       Send the prompt without hmm's instruction prefix
-  --shell-init <shell>    Print shell integration code (currently: zsh)
   --help, -h              Show this help
 EOF
 }
@@ -36,58 +36,54 @@ need() {
   command -v "$1" >/dev/null 2>&1 || die "missing required dependency: $1"
 }
 
-quote_dq() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g'
+read_all() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line"
+  done
 }
 
-print_shell_init() {
-  shell_name=$1
-  script_base=${script##*/}
-  hmm_bin=$(quote_dq "$script_dir/$script_base")
+compose_prompt() {
+  [ -r /dev/tty ] || return 1
 
-  case $shell_name in
-    zsh)
-      cat <<EOF
-# hmm zsh integration
-_hmm() {
-  local hmm_bin="$hmm_bin"
-
-  if [[ ! -x "\$hmm_bin" ]]; then
-    hmm_bin=\$(whence -p -- hmm 2>/dev/null)
+  use_style=0
+  if { [ -t 0 ] || [ -t 2 ]; } && command -v tput >/dev/null 2>&1; then
+    use_style=1
   fi
 
-  if [[ -z "\$hmm_bin" || ! -x "\$hmm_bin" ]]; then
-    print -u2 'hmm: executable not found'
-    return 127
+  if [ "$use_style" -eq 1 ]; then
+    bold=$(tput bold 2>/dev/null || printf '')
+    dim=$(tput dim 2>/dev/null || printf '')
+    cyan=$(tput setaf 6 2>/dev/null || printf '')
+    green=$(tput setaf 2 2>/dev/null || printf '')
+    yellow=$(tput setaf 3 2>/dev/null || printf '')
+    reset=$(tput sgr0 2>/dev/null || printf '')
+  else
+    bold= dim= cyan= green= yellow= reset=
   fi
 
-  if [[ \$# -eq 0 && -t 0 && -t 1 ]]; then
-    _hmm_insert_newline() { LBUFFER+=\$'\n' }
-    zle -N _hmm_insert_newline
+  printf '%s╭─%s %s%shmm%s %scompose%s\n' "$cyan" "$reset" "$yellow" "$bold" "$reset" "$dim" "$reset" >/dev/tty
+  printf '%s│%s  Type or paste your prompt. %sEnter%s adds a line. %sCtrl-D%s sends. %sCtrl-C%s cancels.\n' "$cyan" "$reset" "$yellow" "$reset" "$green" "$reset" "$dim" "$reset" >/dev/tty
+  printf '%s│%s\n' "$cyan" "$reset" >/dev/tty
 
-    bindkey -N hmm-compose emacs 2>/dev/null || bindkey -N hmm-compose
-    bindkey -M hmm-compose '^[^M' _hmm_insert_newline 2>/dev/null
-    bindkey -M hmm-compose '^[^J' _hmm_insert_newline 2>/dev/null
-    bindkey -M hmm-compose '^[[13;2u' _hmm_insert_newline 2>/dev/null
-    bindkey -M hmm-compose '^[[13;3u' _hmm_insert_newline 2>/dev/null
+  prompt=
+  have_input=0
+  while :; do
+    printf '%s│%s ' "$cyan" "$reset" >/dev/tty
+    if IFS= read -r line </dev/tty; then
+      if [ "$have_input" -eq 0 ]; then
+        prompt=$line
+      else
+        prompt=$(printf '%s\n%s' "$prompt" "$line")
+      fi
+      have_input=1
+    else
+      printf '\n%s╰─%s %ssend%s\n' "$cyan" "$reset" "$green" "$reset" >/dev/tty
+      break
+    fi
+  done
 
-    local hmm_prompt=
-    vared -M hmm-compose -p 'hmm> ' hmm_prompt || return \$?
-    [[ -n "\$hmm_prompt" ]] || return 1
-    HMM_SHELL_PID=\$\$ HMM_TTY="\$(tty 2>/dev/null)" command "\$hmm_bin" -- "\$hmm_prompt"
-    return \$?
-  fi
-
-  HMM_SHELL_PID=\$\$ HMM_TTY="\$(tty 2>/dev/null)" command "\$hmm_bin" "\$@"
-}
-
-alias hmm='noglob _hmm'
-EOF
-      ;;
-    *)
-      die "unsupported shell for --shell-init: $shell_name"
-      ;;
-  esac
+  [ "$have_input" -eq 1 ] || return 130
+  printf '%s' "$prompt"
 }
 
 script=$0
@@ -99,18 +95,6 @@ esac
 script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" 2>/dev/null && pwd -P) || die "cannot resolve script directory"
 root_dir=$(CDPATH= cd -- "$script_dir/.." 2>/dev/null && pwd -P) || die "cannot resolve install root"
 libexec_dir=${HMM_LIBEXEC:-"$root_dir/libexec"}
-
-case ${1:-} in
-  --shell-init)
-    [ "$#" -ge 2 ] || die "--shell-init requires a shell name"
-    print_shell_init "$2"
-    exit 0
-    ;;
-  --shell-init=*)
-    print_shell_init "${1#--shell-init=}"
-    exit 0
-    ;;
-esac
 
 session_tool=$libexec_dir/hmm-session
 codex_tool=$libexec_dir/hmm-codex
@@ -146,6 +130,7 @@ raw_json=0
 color=auto
 spinner=auto
 model_for_usage=
+prompt_file=
 instructions=${HMM_INSTRUCTIONS:-You are hmm, a terse terminal assistant. Answer briefly and directly. Prefer the smallest useful answer. Do not inspect files or run tools unless needed to answer or act. When tools are needed, keep progress updates short.}
 use_instructions=1
 
@@ -201,6 +186,15 @@ while [ "$#" -gt 0 ]; do
     --config=*)
       add_codex_arg "--config"
       add_codex_arg "${1#--config=}"
+      shift
+      ;;
+    --file|-f)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      prompt_file=$2
+      shift 2
+      ;;
+    --file=*)
+      prompt_file=${1#--file=}
       shift
       ;;
     --enable|--disable|--image|-i|--cd|-C|--add-dir|--local-provider|--output-schema)
@@ -300,22 +294,21 @@ fi
 session_file=$($session_tool path) || exit 1
 
 prompt=$*
-if [ -z "$prompt" ] && [ ! -t 0 ]; then
-  prompt=$(
-    while IFS= read -r line || [ -n "$line" ]; do
-      printf '%s\n' "$line"
-    done
-  )
-fi
 
-if [ -z "$prompt" ] && [ -t 0 ]; then
-  if [ -r /dev/tty ]; then
-    printf 'hmm> ' >/dev/tty
-    if ! IFS= read -r prompt </dev/tty; then
-      printf '\n' >/dev/tty
-      exit 130
-    fi
+if [ -n "$prompt_file" ]; then
+  [ -z "$prompt" ] || die "--file cannot be combined with prompt arguments"
+  if [ "$prompt_file" = - ]; then
+    prompt=$(read_all)
+  else
+    [ -r "$prompt_file" ] || die "cannot read prompt file: $prompt_file"
+    prompt=$(read_all <"$prompt_file")
   fi
+elif [ -z "$prompt" ] && [ ! -t 0 ]; then
+  prompt=$(read_all)
+elif [ -z "$prompt" ] && [ -t 0 ]; then
+  prompt=$(compose_prompt)
+  compose_status=$?
+  [ "$compose_status" -eq 0 ] || exit "$compose_status"
 fi
 
 [ -n "$prompt" ] || die "usage: hmm <prompt>"

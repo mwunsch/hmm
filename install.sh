@@ -23,43 +23,6 @@ quote_dq() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g'
 }
 
-remove_hmm_block() {
-  src=$1
-  dst=$2
-
-  if [ -f "$src" ]; then
-    awk '
-      /^# >>> hmm >>>$/ { skip = 1; next }
-      /^# <<< hmm <<<$/ { skip = 0; next }
-      !skip { print }
-    ' "$src" >"$dst" || return 1
-  else
-    : >"$dst" || return 1
-  fi
-}
-
-append_zsh_block() {
-  rc_file=$1
-  bin_dir=$2
-  hmm_bin=$bin_dir/hmm
-  tmp=${rc_file}.$$.tmp
-  quoted_bin_dir=$(quote_dq "$bin_dir")
-  quoted_hmm_bin=$(quote_dq "$hmm_bin")
-
-  mkdir -p "$(dirname -- "$rc_file")" || die "cannot create rc directory"
-  remove_hmm_block "$rc_file" "$tmp" || die "cannot update $rc_file"
-
-  {
-    cat "$tmp"
-    printf '\n# >>> hmm >>>\n'
-    printf 'export PATH="%s:$PATH"\n' "$quoted_bin_dir"
-    printf 'eval "$("%s" --shell-init zsh)"\n' "$quoted_hmm_bin"
-    printf '# <<< hmm <<<\n'
-  } >"$rc_file" || die "cannot write $rc_file"
-
-  rm -f "$tmp"
-}
-
 find_local_source() {
   script=$0
   case $script in
@@ -120,17 +83,6 @@ install_source() {
 
 prefix=${HMM_PREFIX:-$HOME/.local}
 bin_dir=${HMM_BIN_DIR:-$prefix/bin}
-shell_name=${HMM_SHELL:-}
-no_rc=${HMM_NO_RC:-0}
-
-case $no_rc in
-  1|true|yes) no_rc=1 ;;
-  *) no_rc=0 ;;
-esac
-
-if [ -z "$shell_name" ] && [ -n "${SHELL:-}" ]; then
-  shell_name=${SHELL##*/}
-fi
 
 tmp_root=${TMPDIR:-/tmp}/hmm-install.$$
 cleanup() {
@@ -157,14 +109,17 @@ install_source "$source_dir" "$bin_dir" "$libexec_dir"
 say "installed hmm to $bin_dir/hmm"
 say "installed helpers to $libexec_dir"
 
-if [ "$no_rc" -eq 1 ]; then
-  say "skipped shell rc update because HMM_NO_RC=1"
-elif [ "$shell_name" = zsh ]; then
-  rc_file=${HMM_RC_FILE:-$HOME/.zshrc}
-  append_zsh_block "$rc_file" "$bin_dir"
-  say "updated $rc_file"
-  say "restart your shell or run: source $rc_file"
+case :$PATH: in
+  *:"$bin_dir":*) ;;
+  *)
+    quoted_bin_dir=$(quote_dq "$bin_dir")
+    say "add hmm to your PATH:"
+    say "  export PATH=\"$quoted_bin_dir:\$PATH\""
+    ;;
+esac
+
+if command -v codex >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  say "ready: hmm \"how do I list large files?\""
 else
-  say "shell rc not updated; generated integration is currently available for zsh"
-  say "for zsh, run: eval \"\$(\"$bin_dir/hmm\" --shell-init zsh)\""
+  say "note: hmm requires codex and jq at runtime"
 fi

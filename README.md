@@ -2,14 +2,14 @@
 
 `hmm` is a small terminal-native wrapper around `codex exec`.
 
-It lets you ask Codex something inline from your shell, keeps the conversation
-sticky for the life of the terminal, and renders Codex's JSONL stream as compact
-terminal output instead of a full coding TUI.
+It lets you ask Codex something from your shell, keeps a sticky conversation for
+the life of the terminal, and renders Codex's JSONL stream as compact terminal
+output instead of a full coding TUI.
 
 ```sh
-hmm I can never remember the flags for tar. Make this directory a tarball.
-hmm --write now do it
-hmm now scp that to my server
+hmm "I can never remember the flags for tar. Make this directory a tarball."
+hmm --write "now do it"
+hmm "now scp that to my server"
 ```
 
 The goal is a terminal clippy: unobtrusive, shell-shaped, visually distinct, and
@@ -17,14 +17,15 @@ able to use Codex tools without becoming a second agent harness.
 
 ## Status
 
-This repo currently implements a zsh-first v1:
+This repo currently implements a portable shell v1:
 
-- shell-native prompt capture via generated zsh integration
+- quoted prompt arguments
+- stdin, heredoc, and file prompt input
+- a small multiline compose prompt for interactive use
 - sticky sessions scoped to the current terminal
 - `codex exec --json` backend
 - compact rendering for assistant output, shell tool use, and token usage
 - safety presets for read-only, workspace-write, and danger mode
-- raw JSON mode for debugging
 
 ## Requirements
 
@@ -52,6 +53,12 @@ From a cloned checkout:
 ./install.sh
 ```
 
+One-line install from GitHub:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh | sh
+```
+
 This installs:
 
 ```text
@@ -59,127 +66,73 @@ This installs:
 ~/.local/libexec/hmm-*
 ```
 
-For zsh, it also updates `~/.zshrc` with a managed block that evaluates the
-generated shell integration.
-
-Restart your shell after installation, or run:
-
-```zsh
-source ~/.zshrc
-```
-
-Manual setup is still just two lines:
-
-```zsh
-export PATH="/path/to/hmm/bin:$PATH"
-eval "$(hmm --shell-init zsh)"
-```
-
-One-line install from GitHub:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh | sh
-```
-
-Or pin a specific archive:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
-  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/archive/refs/tags/v0.1.0.tar.gz sh
-```
+If `~/.local/bin` is not on your `PATH`, the installer prints the line to add.
 
 Installer environment variables:
 
 ```text
 HMM_PREFIX        install prefix, default: ~/.local
 HMM_BIN_DIR       override binary directory, default: $HMM_PREFIX/bin
-HMM_NO_RC=1       skip shell rc modification
-HMM_SHELL=zsh     force shell integration choice
-HMM_RC_FILE=path  override rc file, default for zsh: ~/.zshrc
 HMM_REPO=url      GitHub-style repo URL, default: https://github.com/mwunsch/hmm
 HMM_REF=name      branch name for HMM_REPO archives, default: main
 HMM_TARBALL_URL   explicit source archive URL for curl installs
 ```
 
-## Releases
-
-CI runs `tests/run` on pushes and pull requests across Ubuntu and macOS.
-
-To publish a versioned GitHub Release:
+To pin an install to a release archive:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
+  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/archive/refs/tags/v0.1.0.tar.gz sh
 ```
-
-The release workflow runs the test suite, then creates a GitHub Release for the
-tag. GitHub automatically provides source archives for each tag; use
-`HMM_TARBALL_URL` to pin installs to one of those archives.
-
-After evaluating the shell integration, run `hmm`, not `bin/hmm`. The `hmm`
-alias/function is what enables `noglob` and the zsh compose prompt. Direct
-`bin/hmm` calls bypass the shell integration and use the portable fallback path.
-
-The generated zsh integration defines:
-
-```zsh
-alias hmm='noglob _hmm'
-```
-
-That `noglob` wrapper is what lets prompts contain `?` and `*` without zsh
-treating them as filename patterns.
 
 ## Usage
 
-```sh
-hmm <anything you want, unquoted>
-```
-
-Examples:
+Use quoted strings for simple prompts:
 
 ```sh
-hmm how do I flush DNS cache on macOS
-hmm what does docker COPY do differently from ADD
-hmm summarize what is in $PWD
-hmm --write create a tarball of this directory
-hmm --new explain rsync include and exclude rules
+hmm "how do I flush DNS cache on macOS?"
+hmm "what does docker COPY do differently from ADD?"
+hmm --write "create a tarball of this directory"
+hmm --new "explain rsync include and exclude rules"
 ```
 
-Run `hmm` with no prompt to open a small compose prompt:
-
-```text
-hmm> 
-```
-
-In zsh, the shell integration uses zsh's line editor for this prompt, so normal
-line-editing keys work. Press Enter to submit. Direct `bin/hmm` also supports a
-basic prompt, but without zsh line-editor affordances.
-
-`Opt+Enter` and `Shift+Enter` are terminal-emulator conventions, not portable
-shell signals. The generated zsh prompt binds common sequences for them to insert
-a newline, but support depends on your terminal. For reliable multiline or
-punctuation-heavy prompts, use a quoted heredoc.
-
-Everything after the recognized leading flags is joined into one prompt. If your
-prompt itself starts with a flag-like token, use `--`:
+Use stdin or a heredoc for punctuation-heavy or multiline prompts:
 
 ```sh
-hmm -- --force means what in git clean?
-```
-
-You can also pass the whole prompt on stdin. This is useful when you want to type
-punctuation that would otherwise be shell syntax:
-
-```sh
-bin/hmm <<'EOF'
-Hey here I can type whatever I'd like, right?
+hmm <<'EOF'
+Hey, here I can type whatever I'd like, right?
 Can you explain `find . -name "*.log" -mtime +7 -delete`?
 EOF
 ```
 
-The quoted delimiter, `<<'EOF'`, is important: it prevents the shell from
-expanding `$VARS`, command substitutions, globs, and backticks inside the block.
-Use unquoted `<<EOF` if you intentionally want normal shell expansion.
+Use `--file` / `-f` for durable prompts:
+
+```sh
+hmm --file prompt.md
+hmm -f prompt.md
+```
+
+Use `-` to read the prompt from stdin explicitly:
+
+```sh
+hmm --file - < prompt.md
+```
+
+If no prompt arguments are provided and stdin is a TTY, `hmm` opens a small
+in-terminal compose prompt:
+
+```text
+╭─ hmm compose
+│  Type or paste your prompt. Enter adds a line. Ctrl-D sends. Ctrl-C cancels.
+│
+│ first line
+│ second line
+╰─ send
+```
+
+The compose prompt is intentionally lightweight and portable. Enter adds lines;
+Ctrl-D sends; Ctrl-C cancels. It stays in the terminal, does not open `$EDITOR`,
+and does not use a full TUI framework.
 
 ## Flags
 
@@ -189,6 +142,7 @@ Use unquoted `<<EOF` if you intentionally want normal shell expansion.
 --model, -m <model>     Use a Codex model for this turn
 --profile, -p <name>    Use a Codex config profile
 --config, -c <k=v>      Pass a Codex config override
+--file, -f <file>       Read the prompt from a file (- for stdin)
 --write                 Allow workspace writes for this turn
 --danger                Bypass Codex approvals and sandboxing
 --quiet                 Print only assistant messages
@@ -196,7 +150,7 @@ Use unquoted `<<EOF` if you intentionally want normal shell expansion.
 --json                  Print raw Codex JSONL events
 --color <mode>          auto, always, or never
 --no-color              Disable color
---no-spinner            Disable the loading spinner
+--no-spinner            Disable the thinking indicator
 --instructions <text>   Override the default hmm instruction prefix
 --no-instructions       Send the prompt without hmm's instruction prefix
 ```
@@ -209,13 +163,8 @@ accepted before the prompt.
 
 `hmm` keeps one sticky Codex thread per terminal.
 
-The zsh wrapper passes the parent shell PID and current TTY to `bin/hmm`:
-
-```sh
-HMM_SHELL_PID=$$ HMM_TTY="$(tty)" command hmm "$@"
-```
-
-Those values are hashed into a session key. The current session id is stored at:
+The session key is based on the parent shell process and current TTY. The current
+session id is stored at:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/hmm/sessions/<key>
@@ -233,7 +182,7 @@ Use `hmm --show` to print the stored Codex thread id.
 Default mode is read-only:
 
 ```sh
-hmm explain what this repo does
+hmm "explain what this repo does"
 ```
 
 Internally that passes Codex:
@@ -245,7 +194,7 @@ Internally that passes Codex:
 For edits or local command execution that writes to the workspace:
 
 ```sh
-hmm --write create a tarball of this directory
+hmm --write "create a tarball of this directory"
 ```
 
 That passes:
@@ -257,7 +206,7 @@ That passes:
 For fully unsandboxed automation:
 
 ```sh
-hmm --danger do the broad local task I just described
+hmm --danger "do the broad local task I just described"
 ```
 
 That passes:
@@ -316,74 +265,23 @@ Stream behavior:
 - token usage, elapsed time, warnings, and errors go to stderr
 - `--json` prints raw Codex JSONL to stdout and suppresses the usage footer
 
-## Piped Input
+## Shell Parsing
 
-Codex supports prompts plus piped stdin. `hmm` preserves that behavior:
+`hmm` does not try to defeat shell parsing. Quote prompts that contain shell
+syntax, or use stdin, heredocs, files, or the compose prompt.
 
-```sh
-git diff | hmm summarize this diff
-```
-
-If no prompt arguments are provided, stdin becomes the prompt itself:
+These are safe patterns:
 
 ```sh
+hmm "what does --force do in git clean?"
+hmm 'what is the literal meaning of $PATH?'
 hmm <<'EOF'
-I can type ?, *, |, >, <, $(commands), "quotes", and apostrophes like I've here.
+Explain `cmd`, $(substitution), pipes |, redirects >, and quotes "like this".
 EOF
 ```
 
-When stdin is piped, Codex may print its own note that it is reading additional
-input. That comes from Codex, not from `hmm`.
-
-## Shell Limitations
-
-The zsh wrapper handles common prompt punctuation by using `noglob`, so `?` and
-`*` are passed literally.
-
-That only works when you call the shell-integrated command:
-
-```sh
-hmm Hey does this work?
-```
-
-It cannot work for direct debug calls like this:
-
-```sh
-bin/hmm Hey does this work?
-```
-
-In that form, zsh expands `work?` before `bin/hmm` starts and may fail with
-`zsh: no matches found`. Use the shell-integrated `hmm` command, quote the prompt, or run
-`noglob bin/hmm ...` when debugging the executable directly.
-
-Other shell metacharacters are still shell syntax before `hmm` ever sees them:
-
-```text
-| > < & ; ( ) ` $( ) ' "
-```
-
-Quote those prompts, escape the characters, or use `--` where appropriate.
-An unescaped apostrophe in a contraction like `i've` starts a shell quote and can
-leave zsh at a `quote>` continuation prompt. The shell blocks that before `hmm`
-can run; use `ive`, `I have`, or quote/escape the apostrophe.
-
-For long or punctuation-heavy prompts, prefer a single-quoted heredoc delimiter:
-
-```sh
-hmm <<'EOF'
-Here's a prompt with ?, *, pipes |, redirects >, command substitution $(nope),
-backticks `nope`, and quotes "like this".
-EOF
-```
-
-`$VARS` are expanded by your shell before `hmm` sees the prompt. This is useful
-for questions like:
-
-```sh
-hmm what is in $HOME
-```
-
-If you want the literal string `$HOME`, quote or escape it.
+The quoted heredoc delimiter, `<<'EOF'`, prevents the shell from expanding
+`$VARS`, command substitutions, globs, and backticks inside the block.
 
 ## Architecture
 
@@ -406,11 +304,8 @@ libexec/hmm-render
   consumes Codex JSONL
   renders assistant text, shell tool use, and usage data
 
-bin/hmm --shell-init zsh
-  prints the zsh function and noglob alias used for shell-native prompts
-
 install.sh
-  installs the CLI and writes an idempotent zsh rc block
+  installs the CLI and private helpers
 ```
 
 Codex remains responsible for tools, MCP, skills, sandboxing, approvals, and
@@ -431,28 +326,31 @@ The tests do not invoke real Codex. They put a fake `codex` executable at the
 front of `PATH`, feed deterministic JSONL into the renderer, and isolate session
 state under a temp directory.
 
-Good shell-script tests for this project should:
-
-- exercise scripts as black-box commands, not sourced internals
-- isolate all state with `TMPDIR`, `HMM_STATE_DIR`, `HMM_SHELL_PID`, and `HMM_TTY`
-- mock external programs by prepending a temporary directory to `PATH`
-- disable color and spinners for stable output assertions
-- test syntax with `sh -n` and `zsh -n`
-- use fixture JSONL for renderer behavior
-- assert generated Codex arguments instead of making model calls
-- avoid exact assertions on timing values
-
 Current coverage includes:
 
 - shell syntax for all scripts
-- generated zsh integration syntax
-- local installer behavior and idempotent zsh rc updates
+- local installer behavior
 - `--help` without writable temp space
 - session save/show/reset behavior
 - `--reset --show` ordering
 - renderer output for shell events, assistant text, usage, and unwritable metadata
 - default instruction prefix and `--no-instructions`
-- direct `bin/hmm` continuity without the zsh wrapper environment
+- stdin, heredoc, and file prompt input
+- direct `bin/hmm` continuity
 - `--write` and `--danger` Codex flags
 - Codex exit-status propagation
-- zsh `noglob` alias behavior for `?`
+
+## Releases
+
+CI runs `tests/run` on pushes and pull requests across Ubuntu and macOS.
+
+To publish a versioned GitHub Release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow runs the test suite, then creates a GitHub Release for the
+tag. GitHub automatically provides source archives for each tag; use
+`HMM_TARBALL_URL` to pin installs to one of those archives.

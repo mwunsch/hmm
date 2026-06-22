@@ -24,7 +24,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq zsh
+          sudo apt-get install -y jq
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'

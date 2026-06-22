@@ -105,11 +105,6 @@ test_shell_syntax() {
     "$ROOT/libexec/hmm-session" \
     "$ROOT/libexec/hmm-codex" \
     "$ROOT/libexec/hmm-render" || return 1
-
-  if command -v zsh >/dev/null 2>&1; then
-    "$ROOT/bin/hmm" --shell-init zsh >"$TMP/zsh-init" || return 1
-    zsh -n "$TMP/zsh-init" || return 1
-  fi
 }
 
 test_help_without_tmp() {
@@ -117,40 +112,16 @@ test_help_without_tmp() {
   assert_contains "$output" 'usage: hmm' 'help without tmp'
 }
 
-test_install_local_no_rc() {
-  prefix=$TMP/install-no-rc
+test_install_local() {
+  prefix=$TMP/install-local
 
-  HMM_PREFIX=$prefix HMM_NO_RC=1 "$ROOT/install.sh" >/dev/null || return 1
+  HMM_PREFIX=$prefix "$ROOT/install.sh" >/dev/null || return 1
   prefix_real=$(CDPATH= cd -- "$prefix" && pwd -P) || return 1
 
   [ -x "$prefix_real/bin/hmm" ] || return 1
   [ -x "$prefix_real/libexec/hmm-codex" ] || return 1
   [ -x "$prefix_real/libexec/hmm-render" ] || return 1
   [ -x "$prefix_real/libexec/hmm-session" ] || return 1
-
-  output=$("$prefix_real/bin/hmm" --shell-init zsh) || return 1
-  assert_contains "$output" "local hmm_bin=\"$prefix_real/bin/hmm\"" 'installed shell init path'
-}
-
-test_install_updates_zshrc_idempotently() {
-  prefix=$TMP/install-rc
-  rc=$TMP/home/.zshrc
-
-  mkdir -p "$TMP/home" || return 1
-  printf '%s\n' '# existing rc' >"$rc"
-
-  HMM_PREFIX=$prefix HMM_SHELL=zsh HMM_RC_FILE=$rc "$ROOT/install.sh" >/dev/null || return 1
-  HMM_PREFIX=$prefix HMM_SHELL=zsh HMM_RC_FILE=$rc "$ROOT/install.sh" >/dev/null || return 1
-  prefix_real=$(CDPATH= cd -- "$prefix" && pwd -P) || return 1
-
-  content=$(sed -n '1,120p' "$rc")
-  assert_contains "$content" '# existing rc' 'installer preserves existing rc' || return 1
-  assert_contains "$content" '# >>> hmm >>>' 'installer adds start marker' || return 1
-  assert_contains "$content" '# <<< hmm <<<' 'installer adds end marker' || return 1
-  assert_contains "$content" "eval \"\$(\"$prefix_real/bin/hmm\" --shell-init zsh)\"" 'installer adds generated init eval' || return 1
-
-  count=$(awk '/^# >>> hmm >>>$/ { c++ } END { print c + 0 }' "$rc")
-  [ "$count" -eq 1 ]
 }
 
 test_session_save_show_reset() {
@@ -266,6 +237,22 @@ EOF
   assert_contains "$content" 'Including * ? | > < ; $(stuff) and "quotes".' 'stdin prompt metacharacters'
 }
 
+test_bin_reads_file_prompt() {
+  state=$TMP/state-file
+  prompt_in=$TMP/prompt.md
+  prompt_out=$TMP/file-prompt
+
+  printf '%s\n' 'Explain this from a file.' 'Second line with * and ?.' >"$prompt_in"
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=109 HMM_TTY=/dev/ttys109 \
+    HMM_FAKE_CODEX_PROMPT=$prompt_out \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions --file "$prompt_in" >/dev/null 2>/dev/null || return 1
+
+  content=$(sed -n '1,80p' "$prompt_out")
+  assert_contains "$content" 'Explain this from a file.' 'file prompt first line' || return 1
+  assert_contains "$content" 'Second line with * and ?.' 'file prompt second line'
+}
+
 test_write_safety_flag() {
   state=$TMP/state-write
   args=$TMP/write-args
@@ -297,21 +284,9 @@ test_codex_exit_status_propagates() {
   [ "$status" -eq 42 ]
 }
 
-test_zsh_noglob_alias() {
-  if ! command -v zsh >/dev/null 2>&1; then
-    skip_test 'zsh noglob alias'
-    return 0
-  fi
-
-  init=$TMP/zsh-init-alias
-  "$ROOT/bin/hmm" --shell-init zsh >"$init" || return 1
-  zsh -ic "source '$init'; eval 'hmm --help work? >/dev/null'" >/dev/null 2>&1
-}
-
 run_test 'shell syntax' test_shell_syntax
 run_test 'help does not require writable tmp' test_help_without_tmp
-run_test 'install local without rc update' test_install_local_no_rc
-run_test 'install updates zshrc idempotently' test_install_updates_zshrc_idempotently
+run_test 'install local' test_install_local
 run_test 'session save/show/reset' test_session_save_show_reset
 run_test 'bin reset before show' test_bin_reset_before_show
 run_test 'renderer fixture' test_renderer_fixture
@@ -320,10 +295,10 @@ run_test 'bin uses fake codex and saves session' test_bin_uses_fake_codex_and_sa
 run_test 'direct bin continuity without wrapper env' test_direct_bin_continuity_without_wrapper_env
 run_test 'bin can disable default instructions' test_bin_no_instructions
 run_test 'bin reads stdin prompt' test_bin_reads_stdin_prompt
+run_test 'bin reads file prompt' test_bin_reads_file_prompt
 run_test 'write safety flag' test_write_safety_flag
 run_test 'danger safety flag' test_danger_safety_flag
 run_test 'codex exit status propagates' test_codex_exit_status_propagates
-run_test 'zsh noglob alias' test_zsh_noglob_alias
 
 printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
 
