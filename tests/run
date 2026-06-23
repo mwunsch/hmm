@@ -259,6 +259,41 @@ test_bin_reads_file_prompt() {
   assert_contains "$content" 'Second line with * and ?.' 'file prompt second line'
 }
 
+test_remote_host_prompt() {
+  state=$TMP/state-remote-prompt
+  prompt=$TMP/remote-prompt
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=110 HMM_TTY=/dev/ttys110 \
+    HMM_FAKE_CODEX_PROMPT=$prompt \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions --host m@my-nas list downloads >/dev/null 2>/dev/null || return 1
+
+  content=$(sed -n '1,120p' "$prompt")
+  assert_contains "$content" 'You are inspecting remote host m@my-nas from the local machine.' 'remote host context' || return 1
+  assert_contains "$content" "ssh -- m@my-nas '<remote command>'" 'remote ssh command guidance' || return 1
+  assert_contains "$content" 'Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host.' 'remote no prerequisites' || return 1
+  assert_contains "$content" 'User prompt: list downloads' 'remote user prompt'
+}
+
+test_remote_sessions_are_host_scoped() {
+  state=$TMP/state-remote-scope
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=111 HMM_TTY=/dev/ttys111 \
+    HMM_FAKE_THREAD_ID=local-thread \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions local >/dev/null 2>/dev/null || return 1
+
+  HMM_STATE_DIR=$state HMM_SHELL_PID=111 HMM_TTY=/dev/ttys111 \
+    HMM_FAKE_THREAD_ID=remote-thread \
+    "$ROOT/bin/hmm" --new --no-spinner --no-color --no-instructions --ssh m@my-nas remote >/dev/null 2>/dev/null || return 1
+
+  local_show=$(HMM_STATE_DIR=$state HMM_SHELL_PID=111 HMM_TTY=/dev/ttys111 \
+    "$ROOT/bin/hmm" --show) || return 1
+  [ "$local_show" = local-thread ] || return 1
+
+  remote_show=$(HMM_STATE_DIR=$state HMM_SHELL_PID=111 HMM_TTY=/dev/ttys111 \
+    "$ROOT/bin/hmm" --host m@my-nas --show) || return 1
+  [ "$remote_show" = remote-thread ]
+}
+
 test_write_safety_flag() {
   state=$TMP/state-write
   args=$TMP/write-args
@@ -303,6 +338,8 @@ run_test 'direct bin continuity without wrapper env' test_direct_bin_continuity_
 run_test 'bin can disable default instructions' test_bin_no_instructions
 run_test 'bin reads stdin prompt' test_bin_reads_stdin_prompt
 run_test 'bin reads file prompt' test_bin_reads_file_prompt
+run_test 'remote host prompt context' test_remote_host_prompt
+run_test 'remote sessions are host scoped' test_remote_sessions_are_host_scoped
 run_test 'write safety flag' test_write_safety_flag
 run_test 'danger safety flag' test_danger_safety_flag
 run_test 'codex exit status propagates' test_codex_exit_status_propagates

@@ -11,6 +11,7 @@
 .Op Fl m Ar model
 .Op Fl p Ar name
 .Op Fl c Ar key=value
+.Op Fl -host Ar host
 .Op Fl -new
 .Op Fl -write
 .Op Fl -danger
@@ -35,6 +36,21 @@ in JSONL mode and renders the stream as compact terminal output.
 It keeps a sticky Codex conversation for the current terminal, accepts prompts
 from arguments, standard input, files, or a small in-terminal compose prompt,
 and provides short safety presets over Codex sandbox options.
+.Pp
+With
+.Fl -host
+or
+.Fl -ssh ,
+.Nm
+still runs locally and instructs Codex to inspect the remote machine through
+local
+.Cm ssh
+commands.
+The remote host does not need
+.Nm ,
+Codex, or
+.Cm jq
+installed.
 .Pp
 If
 .Ar prompt
@@ -76,6 +92,14 @@ Use
 .Ar -
 to read from standard input explicitly.
 This option cannot be combined with prompt arguments.
+.It Fl -host Ar host , Fl -ssh Ar host
+Inspect
+.Ar host
+through local SSH.
+Codex is instructed to run remote commands through local
+.Cm ssh
+and to treat paths, processes, services, logs, disks, users, and packages as
+remote unless the user says otherwise.
 .It Fl -write
 Allow workspace writes for this turn by setting Codex
 .Cm sandbox_mode
@@ -162,6 +186,7 @@ is not set.
 .Bl -tag -width Ds
 .It Pa ${XDG_STATE_HOME:-$HOME/.local/state}/hmm/sessions
 Default directory for per-terminal Codex thread ids.
+Remote host sessions are keyed separately from local sessions.
 .It Pa libexec/hmm-codex
 Private helper that invokes the
 .Cm codex
@@ -194,7 +219,15 @@ Allow workspace writes for one turn:
 .Bd -literal -offset indent
 hmm --write "create a tarball of this directory"
 .Ed
+.Pp
+Inspect a remote host over SSH:
+.Bd -literal -offset indent
+hmm --host m@my-nas "list what's in my downloads dir"
+.Ed
 .Sh SEE ALSO
 The
 .Cm codex
+command,
+and the
+.Cm ssh
 command.

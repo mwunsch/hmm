@@ -20,6 +20,7 @@ Options:
   --profile, -p <name>    Use a Codex config profile
   --config, -c <k=v>      Pass a Codex config override
   --file, -f <file>       Read the prompt from a file (- for stdin)
+  --host, --ssh <host>    Inspect a remote host over local ssh
   --write                 Allow workspace writes for this turn
   --danger                Bypass Codex approvals and sandboxing
   --quiet                 Print only assistant messages
@@ -138,6 +139,7 @@ color=auto
 spinner=auto
 model_for_usage=
 prompt_file=
+remote_host=
 instructions=${HMM_INSTRUCTIONS:-You are hmm, a terse terminal assistant. Answer briefly and directly. Prefer the smallest useful answer. Do not inspect files or run tools unless needed to answer or act. When tools are needed, keep progress updates short.}
 use_instructions=1
 
@@ -206,6 +208,17 @@ while [ "$#" -gt 0 ]; do
       ;;
     --file=*)
       prompt_file=${1#--file=}
+      shift
+      ;;
+    --host|--ssh)
+      [ "$#" -ge 2 ] || die "$1 requires a value"
+      [ -n "$2" ] || die "$1 requires a non-empty host"
+      remote_host=$2
+      shift 2
+      ;;
+    --host=*|--ssh=*)
+      remote_host=${1#*=}
+      [ -n "$remote_host" ] || die "${1%%=*} requires a non-empty host"
       shift
       ;;
     --enable|--disable|--image|-i|--cd|-C|--add-dir|--local-provider|--output-schema)
@@ -293,6 +306,11 @@ case $color in
   *) die "--color must be auto, always, or never" ;;
 esac
 
+if [ -n "$remote_host" ]; then
+  HMM_SESSION_SCOPE=host:$remote_host
+  export HMM_SESSION_SCOPE
+fi
+
 if [ "$reset" -eq 1 ]; then
   $session_tool reset || exit 1
 fi
@@ -324,8 +342,33 @@ fi
 
 [ -n "$prompt" ] || die "usage: hmm <prompt>"
 
-if [ "$use_instructions" -eq 1 ] && [ -n "$instructions" ]; then
+if [ -n "$remote_host" ]; then
+  case $safety in
+    read-only)
+      remote_safety='Default to read-only inspection commands. Do not modify files, services, packages, processes, or configuration on the remote host unless the user explicitly asks and reruns with --write or --danger.'
+      ;;
+    workspace-write)
+      remote_safety='The user passed --write, so remote changes are allowed when needed. Prefer explaining risky changes before running them.'
+      ;;
+    danger)
+      remote_safety='The user passed --danger, so Codex approvals and sandboxing are disabled. Remote destructive commands are allowed only when clearly requested.'
+      ;;
+  esac
+
+  remote_instructions=$(printf '%s\n%s\n%s\n%s\n%s' \
+    "You are inspecting remote host $remote_host from the local machine." \
+    "Use local shell commands of the form: ssh -- $remote_host '<remote command>'" \
+    "Assume paths, files, processes, services, logs, disks, users, and packages are on $remote_host unless the user says otherwise." \
+    "Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host." \
+    "$remote_safety")
+fi
+
+if [ "$use_instructions" -eq 1 ] && [ -n "$instructions" ] && [ -n "$remote_host" ]; then
+  prompt=$(printf '%s\n\n%s\n\nUser prompt: %s' "$instructions" "$remote_instructions" "$prompt")
+elif [ "$use_instructions" -eq 1 ] && [ -n "$instructions" ]; then
   prompt=$(printf '%s\n\nUser prompt: %s' "$instructions" "$prompt")
+elif [ -n "$remote_host" ]; then
+  prompt=$(printf '%s\n\nUser prompt: %s' "$remote_instructions" "$prompt")
 fi
 
 need codex

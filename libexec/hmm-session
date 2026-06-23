@@ -16,7 +16,9 @@ if [ -z "$tty_name" ]; then
   tty_name=$(tty 2>/dev/null || printf 'notty')
 fi
 
-raw_key=$shell_pid:$tty_name
+scope=${HMM_SESSION_SCOPE:-local}
+
+raw_key=$shell_pid:$tty_name:$scope
 if command -v shasum >/dev/null 2>&1; then
   key=$(printf '%s' "$raw_key" | shasum | awk '{print $1}')
 else

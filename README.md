@@ -127,6 +127,23 @@ Use `-` to read the prompt from stdin explicitly:
 hmm --file - < prompt.md
 ```
 
+Use `--host` / `--ssh` to inspect a remote machine through local SSH:
+
+```sh
+hmm --host m@my-nas "can you list out what's in my downloads dir?"
+hmm --ssh prod "what is using the most disk?"
+```
+
+Remote mode still runs `hmm`, Codex, and `jq` locally. The remote host only
+needs working SSH access. Codex is instructed to use commands like
+`ssh -- m@my-nas '<remote command>'` and to treat paths, processes, logs,
+services, disks, and packages as remote unless you say otherwise.
+
+By default, remote mode asks Codex to use read-only inspection commands. Passing
+`--write` allows remote changes when needed; passing `--danger` disables Codex
+approvals and sandboxing locally and allows clearly requested destructive remote
+commands.
+
 If no prompt arguments are provided and stdin is a TTY, `hmm` opens a small
 in-terminal compose prompt:
 
@@ -152,6 +169,7 @@ and does not use a full TUI framework.
 --profile, -p <name>    Use a Codex config profile
 --config, -c <k=v>      Pass a Codex config override
 --file, -f <file>       Read the prompt from a file (- for stdin)
+--host, --ssh <host>    Inspect a remote host over local ssh
 --write                 Allow workspace writes for this turn
 --danger                Bypass Codex approvals and sandboxing
 --quiet                 Print only assistant messages
@@ -182,6 +200,9 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/hmm/sessions/<key>
 
 This intentionally does not include the current working directory. You can move
 around in a terminal session and keep talking to the same assistant.
+
+Remote sessions are scoped by host, so local context and each `--host` target get
+separate sticky threads in the same terminal.
 
 Use `hmm --new` or `hmm --reset` to forget the current terminal's thread.
 
