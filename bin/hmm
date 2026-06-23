@@ -2,6 +2,8 @@
 
 set -u
 
+HMM_VERSION=0.1.0
+
 die() {
   printf 'hmm: %s\n' "$*" >&2
   exit 1
@@ -28,8 +30,13 @@ Options:
   --no-spinner            Disable the thinking indicator
   --instructions <text>   Override the default hmm instruction prefix
   --no-instructions       Send the prompt without hmm's instruction prefix
+  --version               Show hmm version
   --help, -h              Show this help
 EOF
+}
+
+version() {
+  printf 'hmm %s\n' "$HMM_VERSION"
 }
 
 need() {
@@ -142,6 +149,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --help|-h)
       usage
+      exit 0
+      ;;
+    --version)
+      version
       exit 0
       ;;
     --new|--reset)

@@ -112,6 +112,11 @@ test_help_without_tmp() {
   assert_contains "$output" 'usage: hmm' 'help without tmp'
 }
 
+test_version() {
+  output=$(TERM=dumb "$ROOT/bin/hmm" --version 2>&1) || return 1
+  [ "$output" = 'hmm 0.1.0' ]
+}
+
 test_install_local() {
   prefix=$TMP/install-local
 
@@ -287,6 +292,7 @@ test_codex_exit_status_propagates() {
 
 run_test 'shell syntax' test_shell_syntax
 run_test 'help does not require writable tmp' test_help_without_tmp
+run_test 'version output' test_version
 run_test 'install local' test_install_local
 run_test 'session save/show/reset' test_session_save_show_reset
 run_test 'bin reset before show' test_bin_reset_before_show

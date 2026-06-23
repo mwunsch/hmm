@@ -22,6 +22,7 @@
 .Op Fl -no-spinner
 .Op Fl -instructions Ar text
 .Op Fl -no-instructions
+.Op Fl -version
 .Op Ar prompt
 .Sh DESCRIPTION
 The
@@ -107,6 +108,10 @@ Disable the thinking indicator.
 Override the default instruction prefix for this turn.
 .It Fl -no-instructions
 Send the prompt without the default instruction prefix.
+.It Fl -version
+Show the
+.Nm
+version and exit.
 .It Fl -enable Ar name , Fl -disable Ar name
 Pass a Codex feature toggle option.
 .It Fl i Ar path , Fl -image Ar path

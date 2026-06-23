@@ -162,6 +162,7 @@ and does not use a full TUI framework.
 --no-spinner            Disable the thinking indicator
 --instructions <text>   Override the default hmm instruction prefix
 --no-instructions       Send the prompt without hmm's instruction prefix
+--version               Show hmm version
 ```
 
 Common Codex passthrough flags such as `--enable`, `--disable`, `--image`,
