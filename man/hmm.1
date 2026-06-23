@@ -1,0 +1,195 @@
+.Dd $Mdocdate$
+.Dt HMM 1
+.Os
+.Sh NAME
+.Nm hmm
+.Nd compact terminal wrapper for codex exec
+.Sh SYNOPSIS
+.Nm
+.Op Fl h
+.Op Fl f Ar file
+.Op Fl m Ar model
+.Op Fl p Ar name
+.Op Fl c Ar key=value
+.Op Fl -new
+.Op Fl -write
+.Op Fl -danger
+.Op Fl -quiet
+.Op Fl -verbose
+.Op Fl -json
+.Op Fl -color Ar mode
+.Op Fl -no-color
+.Op Fl -no-spinner
+.Op Fl -instructions Ar text
+.Op Fl -no-instructions
+.Op Ar prompt
+.Sh DESCRIPTION
+The
+.Nm
+utility runs
+the
+.Cm codex
+command
+in JSONL mode and renders the stream as compact terminal output.
+It keeps a sticky Codex conversation for the current terminal, accepts prompts
+from arguments, standard input, files, or a small in-terminal compose prompt,
+and provides short safety presets over Codex sandbox options.
+.Pp
+If
+.Ar prompt
+is omitted and standard input is not a terminal,
+.Nm
+reads the prompt from standard input.
+If
+.Ar prompt
+is omitted and standard input is a terminal,
+.Nm
+opens an in-terminal compose prompt.
+.Pp
+By default,
+.Nm
+runs Codex with a read-only sandbox.
+Use
+.Fl -write
+to allow workspace writes for one turn, or
+.Fl -danger
+to bypass Codex approvals and sandboxing.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl h , Fl -help
+Show usage information and exit.
+.It Fl -new , Fl -reset
+Start a fresh terminal session by forgetting the saved Codex thread id.
+.It Fl -show
+Show the current terminal session id and exit.
+.It Fl m Ar model , Fl -model Ar model
+Use a Codex model for this turn.
+.It Fl p Ar name , Fl -profile Ar name
+Use a Codex configuration profile.
+.It Fl c Ar key=value , Fl -config Ar key=value
+Pass a Codex configuration override.
+.It Fl f Ar file , Fl -file Ar file
+Read the prompt from
+.Ar file .
+Use
+.Ar -
+to read from standard input explicitly.
+This option cannot be combined with prompt arguments.
+.It Fl -write
+Allow workspace writes for this turn by setting Codex
+.Cm sandbox_mode
+to
+.Cm workspace-write .
+.It Fl -danger
+Bypass Codex approvals and sandboxing for this turn.
+.Nm
+prints a warning unless raw JSON output is enabled.
+.It Fl -quiet
+Print only assistant messages.
+.It Fl -verbose
+Show extra renderer event details.
+.It Fl -json
+Print raw Codex JSONL events.
+This disables color and the thinking indicator.
+.It Fl -color Ar mode
+Set color mode.
+.Ar mode
+must be
+.Cm auto ,
+.Cm always ,
+or
+.Cm never .
+.It Fl -no-color
+Disable color and text styling.
+.It Fl -no-spinner
+Disable the thinking indicator.
+.It Fl -instructions Ar text
+Override the default instruction prefix for this turn.
+.It Fl -no-instructions
+Send the prompt without the default instruction prefix.
+.It Fl -enable Ar name , Fl -disable Ar name
+Pass a Codex feature toggle option.
+.It Fl i Ar path , Fl -image Ar path
+Pass an image path to Codex.
+.It Fl C Ar dir , Fl -cd Ar dir
+Pass a working directory to Codex.
+.It Fl -add-dir Ar dir
+Pass an additional writable or readable directory to Codex.
+.It Fl -local-provider Ar name
+Pass a local provider name to Codex.
+.It Fl -output-schema Ar schema
+Pass an output schema to Codex.
+.It Fl -strict-config
+Pass Codex strict configuration mode.
+.It Fl -oss
+Pass Codex OSS mode.
+.It Fl -ignore-user-config
+Tell Codex to ignore user configuration.
+.It Fl -ignore-rules
+Tell Codex to ignore repository rules.
+.It Fl -dangerously-bypass-hook-trust
+Pass Codex hook trust bypass mode.
+.It Fl -
+Stop option parsing.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev HMM_INSTRUCTIONS
+Default instruction prefix prepended to prompts.
+.It Ev HMM_LIBEXEC
+Directory containing private helper executables.
+.It Ev HMM_STATE_DIR
+Directory for session state.
+The default is
+.Pa ${XDG_STATE_HOME:-$HOME/.local/state}/hmm .
+.It Ev HMM_SHELL_PID
+Override the shell process id used to compute the terminal session key.
+.It Ev HMM_TTY
+Override the terminal path used to compute the terminal session key.
+.It Ev TMPDIR
+Directory for temporary files.
+.It Ev XDG_STATE_HOME
+Base directory for state files when
+.Ev HMM_STATE_DIR
+is not set.
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa ${XDG_STATE_HOME:-$HOME/.local/state}/hmm/sessions
+Default directory for per-terminal Codex thread ids.
+.It Pa libexec/hmm-codex
+Private helper that invokes the
+.Cm codex
+command.
+.It Pa libexec/hmm-render
+Private JSONL renderer.
+.It Pa libexec/hmm-session
+Private session state helper.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Pp
+If Codex exits with a non-zero status,
+.Nm
+exits with that status.
+.Sh EXAMPLES
+Ask a short question:
+.Bd -literal -offset indent
+hmm "how do I flush DNS cache on macOS?"
+.Ed
+.Pp
+Send a multiline prompt with a heredoc:
+.Bd -literal -offset indent
+hmm <<'EOF'
+Explain `find . -name "*.log" -mtime +7 -delete`.
+EOF
+.Ed
+.Pp
+Allow workspace writes for one turn:
+.Bd -literal -offset indent
+hmm --write "create a tarball of this directory"
+.Ed
+.Sh SEE ALSO
+The
+.Cm codex
+command.

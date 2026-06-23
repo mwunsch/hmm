@@ -53,10 +53,10 @@ From a cloned checkout:
 ./install.sh
 ```
 
-One-line install from GitHub:
+One-line install from the latest GitHub release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh | sh
+curl -fsSL https://github.com/mwunsch/hmm/releases/latest/download/install.sh | sh
 ```
 
 This installs:
@@ -64,6 +64,7 @@ This installs:
 ```text
 ~/.local/bin/hmm
 ~/.local/libexec/hmm-*
+~/.local/share/man/man1/hmm.1
 ```
 
 If `~/.local/bin` is not on your `PATH`, the installer prints the line to add.
@@ -73,16 +74,24 @@ Installer environment variables:
 ```text
 HMM_PREFIX        install prefix, default: ~/.local
 HMM_BIN_DIR       override binary directory, default: $HMM_PREFIX/bin
+HMM_MAN_DIR       override man page directory, default: $HMM_PREFIX/share/man/man1
 HMM_REPO=url      GitHub-style repo URL, default: https://github.com/mwunsch/hmm
-HMM_REF=name      branch name for HMM_REPO archives, default: main
+HMM_REF=name      branch name for HMM_REPO archives, default: latest release
 HMM_TARBALL_URL   explicit source archive URL for curl installs
 ```
 
-To pin an install to a release archive:
+To pin an install to a specific release archive:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
-  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/archive/refs/tags/v0.1.0.tar.gz sh
+  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/releases/download/v0.1.0/hmm.tar.gz sh
+```
+
+For development installs from a branch:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
+  | HMM_REF=main sh
 ```
 
 ## Usage

@@ -24,7 +24,20 @@ jobs:
       - name: Run tests
         run: tests/run
 
+      - name: Package release assets
+        run: |
+          mkdir -p dist/hmm/bin dist/hmm/libexec dist/hmm/man
+          cp install.sh dist/install.sh
+          cp bin/hmm dist/hmm/bin/hmm
+          cp libexec/hmm-codex dist/hmm/libexec/hmm-codex
+          cp libexec/hmm-render dist/hmm/libexec/hmm-render
+          cp libexec/hmm-session dist/hmm/libexec/hmm-session
+          cp man/hmm.1 dist/hmm/man/hmm.1
+          chmod 755 dist/install.sh dist/hmm/bin/hmm dist/hmm/libexec/hmm-codex dist/hmm/libexec/hmm-render dist/hmm/libexec/hmm-session
+          chmod 644 dist/hmm/man/hmm.1
+          tar -C dist -czf dist/hmm.tar.gz hmm
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/install.sh dist/hmm.tar.gz --title "$GITHUB_REF_NAME" --generate-notes

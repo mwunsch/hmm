@@ -122,6 +122,7 @@ test_install_local() {
   [ -x "$prefix_real/libexec/hmm-codex" ] || return 1
   [ -x "$prefix_real/libexec/hmm-render" ] || return 1
   [ -x "$prefix_real/libexec/hmm-session" ] || return 1
+  [ -r "$prefix_real/share/man/man1/hmm.1" ] || return 1
 }
 
 test_session_save_show_reset() {

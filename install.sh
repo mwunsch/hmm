@@ -42,8 +42,12 @@ download_source() {
   tarball_url=${HMM_TARBALL_URL:-}
   if [ -z "$tarball_url" ]; then
     repo=${HMM_REPO:-https://github.com/mwunsch/hmm}
-    ref=${HMM_REF:-main}
-    tarball_url=${repo%/}/archive/refs/heads/$ref.tar.gz
+    ref=${HMM_REF:-}
+    if [ -n "$ref" ]; then
+      tarball_url=${repo%/}/archive/refs/heads/$ref.tar.gz
+    else
+      tarball_url=${repo%/}/releases/latest/download/hmm.tar.gz
+    fi
   fi
 
   [ -n "$tarball_url" ] || die "no source archive configured"
@@ -56,7 +60,7 @@ download_source() {
   curl -fsSL "$tarball_url" -o "$archive" || die "download failed: $tarball_url"
   tar -xzf "$archive" -C "$work_dir" || die "cannot extract source archive"
 
-  src=$(find "$work_dir" -maxdepth 2 -type f -path '*/bin/hmm' -print | sed -n '1p')
+  src=$(find "$work_dir" -maxdepth 3 -type f -path '*/bin/hmm' -print | sed -n '1p')
   [ -n "$src" ] || die "archive did not contain bin/hmm"
   abs_dir "$(dirname -- "$src")/.."
 }
@@ -65,24 +69,29 @@ install_source() {
   source_dir=$1
   bin_dir=$2
   libexec_dir=$3
+  man_dir=$4
 
   [ -x "$source_dir/bin/hmm" ] || die "source is missing bin/hmm"
   [ -x "$source_dir/libexec/hmm-codex" ] || die "source is missing libexec/hmm-codex"
   [ -x "$source_dir/libexec/hmm-render" ] || die "source is missing libexec/hmm-render"
   [ -x "$source_dir/libexec/hmm-session" ] || die "source is missing libexec/hmm-session"
+  [ -r "$source_dir/man/hmm.1" ] || die "source is missing man/hmm.1"
 
-  mkdir -p "$bin_dir" "$libexec_dir" || die "cannot create install directories"
+  mkdir -p "$bin_dir" "$libexec_dir" "$man_dir" || die "cannot create install directories"
 
   cp "$source_dir/bin/hmm" "$bin_dir/hmm" || die "cannot install hmm"
   cp "$source_dir/libexec/hmm-codex" "$libexec_dir/hmm-codex" || die "cannot install hmm-codex"
   cp "$source_dir/libexec/hmm-render" "$libexec_dir/hmm-render" || die "cannot install hmm-render"
   cp "$source_dir/libexec/hmm-session" "$libexec_dir/hmm-session" || die "cannot install hmm-session"
+  cp "$source_dir/man/hmm.1" "$man_dir/hmm.1" || die "cannot install hmm.1"
 
   chmod 755 "$bin_dir/hmm" "$libexec_dir/hmm-codex" "$libexec_dir/hmm-render" "$libexec_dir/hmm-session" || die "cannot set executable bits"
+  chmod 644 "$man_dir/hmm.1" || die "cannot set man page permissions"
 }
 
 prefix=${HMM_PREFIX:-$HOME/.local}
 bin_dir=${HMM_BIN_DIR:-$prefix/bin}
+man_dir=${HMM_MAN_DIR:-$prefix/share/man/man1}
 
 tmp_root=${TMPDIR:-/tmp}/hmm-install.$$
 cleanup() {
@@ -103,11 +112,13 @@ bin_dir=$(mkdir -p "$bin_dir" && abs_dir "$bin_dir") || die "cannot resolve bin 
 bin_parent=$(dirname -- "$bin_dir")
 libexec_dir=$bin_parent/libexec
 libexec_dir=$(mkdir -p "$libexec_dir" && abs_dir "$libexec_dir") || die "cannot resolve libexec directory"
+man_dir=$(mkdir -p "$man_dir" && abs_dir "$man_dir") || die "cannot resolve man directory"
 
-install_source "$source_dir" "$bin_dir" "$libexec_dir"
+install_source "$source_dir" "$bin_dir" "$libexec_dir" "$man_dir"
 
 say "installed hmm to $bin_dir/hmm"
 say "installed helpers to $libexec_dir"
+say "installed man page to $man_dir/hmm.1"
 
 case :$PATH: in
   *:"$bin_dir":*) ;;
