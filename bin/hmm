@@ -50,38 +50,6 @@ read_all() {
   done
 }
 
-host_name_part() {
-  case $1 in
-    *@*) printf '%s' "${1##*@}" ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
-resolve_host_ip() {
-  host=$1
-  ip=
-
-  if command -v dscacheutil >/dev/null 2>&1; then
-    ip=$(dscacheutil -q host -a name "$host" 2>/dev/null | awk '/^ip_address:/ { print $2; exit }')
-    if [ -n "$ip" ]; then
-      printf '%s\n' "$ip"
-      return
-    fi
-  fi
-
-  if command -v getent >/dev/null 2>&1; then
-    ip=$(getent hosts "$host" 2>/dev/null | awk '{ print $1; exit }')
-    if [ -n "$ip" ]; then
-      printf '%s\n' "$ip"
-      return
-    fi
-  fi
-
-  if command -v tailscale >/dev/null 2>&1; then
-    tailscale ip -4 "$host" 2>/dev/null | sed -n '1p'
-  fi
-}
-
 compose_prompt() {
   [ -r /dev/tty ] || return 1
 
@@ -375,13 +343,6 @@ fi
 [ -n "$prompt" ] || die "usage: hmm <prompt>"
 
 if [ -n "$remote_host" ]; then
-  remote_host_name=$(host_name_part "$remote_host")
-  remote_host_ip=$(resolve_host_ip "$remote_host_name")
-  remote_dns_fallback=
-  if [ -n "$remote_host_ip" ] && [ "$remote_host_ip" != "$remote_host_name" ]; then
-    remote_dns_fallback=$(printf '%s' "Local preflight resolved $remote_host_name to $remote_host_ip. If ssh reports that $remote_host_name cannot resolve inside the Codex sandbox, use: ssh -o HostName=$remote_host_ip -- $remote_host '<remote command>'")
-  fi
-
   case $safety in
     read-only)
       remote_safety='Default to read-only inspection commands. Do not modify files, services, packages, processes, or configuration on the remote host unless the user explicitly asks and reruns with --write or --danger.'
@@ -394,22 +355,12 @@ if [ -n "$remote_host" ]; then
       ;;
   esac
 
-  if [ -n "$remote_dns_fallback" ]; then
-    remote_instructions=$(printf '%s\n%s\n%s\n%s\n%s\n%s' \
-      "You are inspecting remote host $remote_host from the local machine." \
-      "Use local shell commands of the form: ssh -- $remote_host '<remote command>'" \
-      "$remote_dns_fallback" \
-      "Assume paths, files, processes, services, logs, disks, users, and packages are on $remote_host unless the user says otherwise." \
-      "Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host." \
-      "$remote_safety")
-  else
-    remote_instructions=$(printf '%s\n%s\n%s\n%s\n%s' \
-      "You are inspecting remote host $remote_host from the local machine." \
-      "Use local shell commands of the form: ssh -- $remote_host '<remote command>'" \
-      "Assume paths, files, processes, services, logs, disks, users, and packages are on $remote_host unless the user says otherwise." \
-      "Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host." \
-      "$remote_safety")
-  fi
+  remote_instructions=$(printf '%s\n%s\n%s\n%s\n%s' \
+    "You are inspecting remote host $remote_host from the local machine." \
+    "Use local shell commands of the form: ssh -- $remote_host '<remote command>'" \
+    "Assume paths, files, processes, services, logs, disks, users, and packages are on $remote_host unless the user says otherwise." \
+    "Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host." \
+    "$remote_safety")
 fi
 
 if [ "$use_instructions" -eq 1 ] && [ -n "$instructions" ] && [ -n "$remote_host" ]; then

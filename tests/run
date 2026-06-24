@@ -51,23 +51,6 @@ exit "$exit_code"
 EOF
 chmod +x "$FAKE_BIN/codex" || exit 1
 
-cat >"$FAKE_BIN/dscacheutil" <<'EOF'
-#!/bin/sh
-
-[ "$1" = -q ] && [ "$2" = host ] && [ "$3" = -a ] && [ "$4" = name ] || exit 1
-
-case ${5:-} in
-  my-nas)
-    printf 'name: my-nas.tailnet.example\n'
-    printf 'ip_address: 100.64.0.10\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-EOF
-chmod +x "$FAKE_BIN/dscacheutil" || exit 1
-
 PATH=$FAKE_BIN:$PATH
 export PATH
 
@@ -303,7 +286,6 @@ test_remote_host_prompt() {
   content=$(sed -n '1,120p' "$prompt")
   assert_contains "$content" 'You are inspecting remote host m@my-nas from the local machine.' 'remote host context' || return 1
   assert_contains "$content" "ssh -- m@my-nas '<remote command>'" 'remote ssh command guidance' || return 1
-  assert_contains "$content" "ssh -o HostName=100.64.0.10 -- m@my-nas '<remote command>'" 'remote ssh dns fallback' || return 1
   assert_contains "$content" 'Do not require hmm, codex, jq, or any other hmm dependency to exist on the remote host.' 'remote no prerequisites' || return 1
   assert_contains "$content" 'User prompt: list downloads' 'remote user prompt' || return 1
   assert_file_contains "$args" '<sandbox_workspace_write.network_access=true>' 'remote host enables codex network'
