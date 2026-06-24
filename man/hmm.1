@@ -51,6 +51,12 @@ The remote host does not need
 Codex, or
 .Cm jq
 installed.
+Because SSH requires outbound network access,
+.Fl -host
+runs Codex shell commands with Codex's workspace-write sandbox plus network
+access enabled.
+The remote machine is still treated as read-only by default through the prompt
+instructions.
 .Pp
 If
 .Ar prompt

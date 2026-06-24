@@ -144,6 +144,11 @@ By default, remote mode asks Codex to use read-only inspection commands. Passing
 approvals and sandboxing locally and allows clearly requested destructive remote
 commands.
 
+Because SSH needs outbound network access, `--host` runs Codex shell commands
+with Codex's workspace-write sandbox plus network access enabled. The remote
+machine is still treated as read-only by default through the prompt instructions;
+use `--write` when you want to allow remote changes.
+
 If no prompt arguments are provided and stdin is a TTY, `hmm` opens a small
 in-terminal compose prompt:
 

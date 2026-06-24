@@ -53,7 +53,7 @@ case $mode in
 esac
 
 case $safety in
-  read-only|workspace-write|danger) ;;
+  read-only|workspace-write|remote-network|danger) ;;
   *) die "invalid safety mode: $safety" ;;
 esac
 
@@ -75,6 +75,9 @@ case $safety in
     ;;
   workspace-write)
     set -- "$@" --config 'sandbox_mode="workspace-write"'
+    ;;
+  remote-network)
+    set -- "$@" --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write.network_access=true'
     ;;
   danger)
     set -- "$@" --dangerously-bypass-approvals-and-sandbox

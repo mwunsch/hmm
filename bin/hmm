@@ -445,6 +445,11 @@ if [ "$safety" = danger ] && [ "$raw_json" -eq 0 ]; then
   printf 'hmm: danger mode enabled: Codex approvals and sandboxing are disabled\n' >&2
 fi
 
+codex_safety=$safety
+if [ -n "$remote_host" ] && [ "$safety" != danger ]; then
+  codex_safety=remote-network
+fi
+
 status_file=$run_dir/codex-status
 meta_dir=$run_dir/meta
 mkdir -p "$meta_dir" || die "cannot create temp metadata directory"
@@ -455,7 +460,7 @@ HMM_CODEX_STATUS_FILE=$status_file \
     --mode "$mode" \
     --session-id "$session_id" \
     --args-file "$codex_args_file" \
-    --safety "$safety" \
+    --safety "$codex_safety" \
     -- "$prompt" |
   "$render_tool" \
     --meta-dir "$meta_dir" \
