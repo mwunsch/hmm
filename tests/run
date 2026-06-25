@@ -129,7 +129,7 @@ test_help_without_tmp() {
 
 test_version() {
   output=$(TERM=dumb "$ROOT/bin/hmm" --version 2>&1) || return 1
-  [ "$output" = 'hmm 0.1.0' ]
+  [ "$output" = 'hmm 0.2.0' ]
 }
 
 test_install_local() {

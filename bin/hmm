@@ -2,7 +2,7 @@
 
 set -u
 
-HMM_VERSION=0.1.0
+HMM_VERSION=0.2.0
 
 die() {
   printf 'hmm: %s\n' "$*" >&2

@@ -84,7 +84,7 @@ To pin an install to a specific release archive:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mwunsch/hmm/main/install.sh \
-  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/releases/download/v0.1.0/hmm.tar.gz sh
+  | HMM_TARBALL_URL=https://github.com/mwunsch/hmm/releases/download/v0.2.0/hmm.tar.gz sh
 ```
 
 For development installs from a branch:
@@ -383,10 +383,10 @@ CI runs `tests/run` on pushes and pull requests across Ubuntu and macOS.
 To publish a versioned GitHub Release:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 The release workflow runs the test suite, then creates a GitHub Release for the
-tag. GitHub automatically provides source archives for each tag; use
-`HMM_TARBALL_URL` to pin installs to one of those archives.
+tag and uploads `install.sh` and `hmm.tar.gz` assets. Use `HMM_TARBALL_URL` to
+pin installs to a specific release tarball.
