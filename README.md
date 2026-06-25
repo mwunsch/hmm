@@ -390,3 +390,7 @@ git push origin v0.2.0
 The release workflow runs the test suite, then creates a GitHub Release for the
 tag and uploads `install.sh` and `hmm.tar.gz` assets. Use `HMM_TARBALL_URL` to
 pin installs to a specific release tarball.
+
+## License
+
+MIT. See `LICENSE`.
